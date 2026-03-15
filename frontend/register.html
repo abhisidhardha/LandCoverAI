@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Register • LandCoverAI</title>
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="brand" href="/">LandCoverAI</a>
+        <nav class="nav">
+          <a href="/predict.html">Predict</a>
+          <a href="/login.html">Login</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="container auth-page">
+      <section class="auth-card">
+        <h1>Create an account</h1>
+        <p>Register to start analyzing your land using satellite AI.</p>
+
+        <form id="registerForm" class="form">
+          <label>
+            Full name
+            <input type="text" name="name" class="input-field" required placeholder="John Farmer" style="margin-top: 0.5rem;" />
+          </label>
+          <label>
+            Email Address
+            <input type="email" name="email" class="input-field" required placeholder="john@example.com" style="margin-top: 0.5rem;" />
+          </label>
+          <label>
+            Password
+            <input type="password" name="password" class="input-field" required minlength="8" placeholder="••••••••" style="margin-top: 0.5rem;" />
+          </label>
+          <label>
+            Confirm password
+            <input type="password" name="confirm" class="input-field" required minlength="8" placeholder="••••••••" style="margin-top: 0.5rem;" />
+          </label>
+
+          <button type="submit" class="btn btn-primary btn-large" style="margin-top: 1rem;">Create Account</button>
+          <p class="form-footer">Already registered? <a href="/login.html">Login</a></p>
+        </form>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container">
+        <p>© 2026 LandCoverAI.</p>
+      </div>
+    </footer>
+
+    <script src="js/common.js"></script>
+    <script src="js/auth.js"></script>
+  </body>
+</html>

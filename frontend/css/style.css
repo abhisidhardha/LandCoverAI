@@ -1,0 +1,662 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+
+:root {
+  /* Earthy & Premium Color Palette suitable for agriculture */
+  --bg: #f4f7f4;                 /* Soft off-white green tint for background */
+  --bg-gradient: linear-gradient(135deg, #f4f7f4 0%, #e8efe9 100%);
+  
+  --surface: #ffffff;            /* Pure white for panels */
+  --surface-2: #fafdff;          /* Very slight blue tint for secondary cards */
+  
+  --text: #1a2f24;               /* Deep forest green/black for high contrast text */
+  --text-muted: #4e6a5b;         /* Muted leafy tone for secondary text */
+  
+  --border: rgba(43, 85, 59, 0.12); /* Subtle green border */
+  
+  --primary: #2e7d32;            /* Strong reliable emerald/agri green */
+  --primary-hover: #1b5e20;      /* Darker interaction state */
+  --primary-light: #e8f5e9;      /* Highlight tint */
+  
+  --secondary: #f9a825;          /* Warm golden yellow for accents / UI pop */
+  --secondary-hover: #f57f17;
+  
+  --danger: #d32f2f;
+  
+  --radius: 20px;
+  --radius-sm: 12px;
+  
+  --shadow-sm: 0 4px 12px rgba(26, 47, 36, 0.05);
+  --shadow: 0 12px 30px rgba(26, 47, 36, 0.08);
+  --shadow-hover: 0 20px 40px rgba(26, 47, 36, 0.12);
+  
+  --max-width: 1280px;
+
+  /* Typography */
+  --font-family: 'Outfit', system-ui, -apple-system, sans-serif;
+}
+
+/* =========================================
+   RESET & FOUNDATION
+========================================= */
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg-gradient);
+  color: var(--text);
+  font-family: var(--font-family);
+  line-height: 1.6;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+.container {
+  width: min(var(--max-width), 92vw);
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+a:hover {
+  color: var(--primary);
+}
+
+/* =========================================
+   HEADER / NAVIGATION
+========================================= */
+.site-header {
+  position: sticky;
+  top: 0;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border);
+  z-index: 1000;
+  box-shadow: var(--shadow-sm);
+}
+
+.header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 0;
+}
+
+.brand {
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.brand::before {
+  content: '🌱';
+  font-size: 1.6rem;
+}
+
+.nav {
+  display: flex;
+  gap: 1.5rem;
+  align-items: center;
+  font-weight: 500;
+}
+
+.nav a {
+  padding: 0.5rem 0;
+  position: relative;
+  color: var(--text-muted);
+}
+
+.nav a:hover, .nav a.active {
+  color: var(--primary);
+}
+
+/* Simple underline hover effect */
+.nav a::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 0%;
+  height: 2px;
+  background: var(--primary);
+  transition: width 0.3s ease;
+}
+.nav a:hover::after { width: 100%; }
+
+/* =========================================
+   BUTTONS
+========================================= */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  padding: 0.85rem 1.75rem;
+  border-radius: 999px;
+  border: none;
+  background: var(--primary);
+  color: #fff;
+  font-family: var(--font-family);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+  box-shadow: 0 6px 16px rgba(46, 125, 50, 0.25);
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--primary-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(46, 125, 50, 0.35);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: #b0c2b3;
+  box-shadow: none;
+}
+
+.btn-large {
+  font-size: 1.15rem;
+  padding: 1rem 2.5rem;
+}
+
+.btn-secondary {
+  background: var(--secondary);
+  color: #fff;
+  box-shadow: 0 6px 16px rgba(249, 168, 37, 0.3);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--secondary-hover);
+  box-shadow: 0 10px 24px rgba(249, 168, 37, 0.4);
+}
+
+.btn-outline {
+  background: transparent;
+  color: var(--primary);
+  border: 2px solid var(--primary);
+  box-shadow: none;
+}
+
+.btn-outline:hover:not(:disabled) {
+  background: var(--primary-light);
+  transform: translateY(-1px);
+}
+
+/* =========================================
+   TYPOGRAPHY
+========================================= */
+h1, h2, h3, h4 {
+  color: var(--text);
+  margin-top: 0;
+  line-height: 1.2;
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+/* =========================================
+   AUTH PAGES
+========================================= */
+.auth-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(100vh - 80px); /* Account for header */
+  padding: 2rem;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 480px;
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 3rem 2.5rem;
+  box-shadow: var(--shadow);
+  border: 1px solid rgba(255,255,255,0.8);
+  text-align: center;
+}
+
+.auth-card h1 {
+  font-size: 2rem;
+  margin-bottom: 0.5rem;
+  color: var(--primary);
+}
+
+.auth-card p {
+  color: var(--text-muted);
+  margin-bottom: 2rem;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  text-align: left;
+}
+
+.form label {
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.input-field {
+  width: 100%;
+  padding: 1rem 1.25rem;
+  border-radius: var(--radius-sm);
+  border: 2px solid var(--border);
+  background: #fafafa;
+  font-family: var(--font-family);
+  font-size: 1rem;
+  color: var(--text);
+  transition: all 0.25s ease;
+}
+
+.input-field:focus {
+  outline: none;
+  border-color: var(--primary);
+  background: #fff;
+  box-shadow: 0 0 0 4px var(--primary-light);
+}
+
+.form-footer {
+  text-align: center;
+  margin-top: 1.5rem;
+  font-size: 0.95rem;
+  color: var(--text-muted);
+}
+.form-footer a {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+/* =========================================
+   PREDICT LAYOUT
+========================================= */
+.predict-page {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr;
+  gap: 2rem;
+  padding: 2.5rem 0;
+  min-height: calc(100vh - 80px);
+  position: relative;
+}
+
+/* --- OVERLAY BUG FIX --- */
+/* Z-index updated to 9999 to cover Leaflet (z-index: 400+) */
+.loading-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.85);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999; 
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+  border-radius: var(--radius);
+}
+
+.loading-overlay.visible {
+  opacity: 1;
+  pointer-events: all;
+}
+
+.loading-spinner {
+  width: 64px;
+  height: 64px;
+  border: 6px solid var(--primary-light);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 0 20px rgba(46,125,50,0.1);
+}
+
+.loading-overlay h3 {
+  color: var(--primary);
+  font-size: 1.5rem;
+  margin: 0;
+}
+
+.loading-overlay p {
+  color: var(--text-muted);
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* --- PANELS --- */
+.panel {
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  border: 1px solid rgba(255,255,255,0.9);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* Contains map borders cleanly */
+}
+
+/* Make sure map panel has sufficient height */
+.panel-map {
+  min-height: 700px;
+}
+
+.panel-header {
+  padding: 1.75rem 2rem 1rem;
+  background: #fff;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+}
+
+.step-indicator {
+  display: inline-block;
+  background: var(--primary-light);
+  color: var(--primary);
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.3rem 0.8rem;
+  border-radius: 999px;
+  margin-bottom: 0.75rem;
+}
+
+.panel-header h2 {
+  font-size: 1.8rem;
+  margin: 0 0 0.25rem;
+}
+
+.panel-header p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 1.05rem;
+}
+
+/* MAP CONTAINER */
+.map {
+  flex: 1 1 0;
+  width: 100%;
+  min-height: 480px; 
+  /* Leaflet defaults fix */
+  background: #e8efe9; 
+  z-index: 10;
+}
+
+/* Custom override for Leaflet popup bubbles to match theme */
+.leaflet-popup-content-wrapper {
+  background: var(--surface);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+}
+.leaflet-container {
+  font-family: var(--font-family);
+}
+
+.panel-footer {
+  padding: 1.5rem 2rem;
+  background: #fff;
+  border-top: 1px solid var(--border);
+}
+
+/* Tidy up coordinate inputs */
+.map-controls-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.coord-group {
+  display: grid;
+  gap: 0.3rem;
+  flex: 1;
+}
+
+.coord-group label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+/* Custom Select Dropdown */
+select.input-field {
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%232e7d32' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 1rem center;
+  background-size: 1.2rem;
+  padding-right: 2.5rem;
+  cursor: pointer;
+}
+
+.analyze-button-container {
+  width: 100%;
+  margin-top: 1.5rem;
+}
+.analyze-button-container .btn {
+  width: 100%;
+  padding: 1.1rem;
+  font-size: 1.2rem;
+}
+
+/* --- RESULTS PANEL --- */
+.results {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  padding: 1.75rem 2rem;
+  flex: 1 1 0;
+  overflow-y: auto;
+  background: var(--surface-2);
+}
+
+.result-card {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 1.5rem;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.result-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+}
+
+.result-card h3 {
+  font-size: 1.2rem;
+  margin: 0 0 1rem;
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.upload-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.upload-box {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  border: 2px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.upload-box:hover {
+  border-color: var(--primary);
+  background: var(--primary-light);
+}
+
+.upload-box input[type="file"] {
+  width: 100%;
+}
+
+.upload-box button {
+  white-space: nowrap;
+}
+
+.image-preview {
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: #eaeeee;
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 250px;
+  position: relative;
+}
+
+.image-preview img {
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  display: block;
+}
+
+/* Placeholder for empty state */
+.image-preview::before {
+  content: 'Map area will appear here';
+  position: absolute;
+  color: #adbcaa;
+  font-weight: 500;
+  z-index: 0;
+}
+.image-preview img {
+  position: relative;
+  z-index: 1;
+}
+
+.result-actions {
+  margin-top: 1rem;
+  display: flex;
+  justify-content: center;
+}
+
+/* Data Table */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+
+.table th {
+  text-align: left;
+  padding: 0.75rem 1rem;
+  background: var(--primary-light);
+  color: var(--primary);
+  font-weight: 600;
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+}
+
+.table td {
+  padding: 1rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+
+.table tbody tr:hover td {
+  background: #fdfdfd;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* =========================================
+   FOOTER
+========================================= */
+.site-footer {
+  padding: 3rem 0 2rem;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+}
+
+/* =========================================
+   RESPONSIVE (Mobile/Tablet specific)
+========================================= */
+@media (max-width: 1024px) {
+  .predict-page {
+    grid-template-columns: 1fr; /* Stack map on top of results */
+  }
+  
+  .panel-map {
+    min-height: auto;
+  }
+  
+  .map {
+    height: 60vh; /* Viewport height dependent for map on mobile */
+    min-height: 400px;
+  }
+}
+
+@media (max-width: 600px) {
+  .header-inner {
+    padding: 0.75rem 0;
+  }
+  
+  .nav {
+    gap: 1rem;
+    font-size: 0.9rem;
+  }
+  
+  .panel-header {
+    padding: 1.25rem 1rem 0.75rem;
+  }
+  
+  .panel-footer {
+    padding: 1.25rem 1rem;
+  }
+  
+  .map-controls-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1rem;
+  }
+  
+  .auth-card {
+    padding: 2rem 1.5rem;
+  }
+}

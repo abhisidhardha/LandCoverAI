@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Login • LandCoverAI</title>
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="brand" href="/">LandCoverAI</a>
+        <nav class="nav">
+          <a href="/predict.html">Predict</a>
+          <a href="/register.html">Register</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="container auth-page">
+      <section class="auth-card">
+        <h1>Welcome Back</h1>
+        <p>Sign in to view your past farm analyses and predictions.</p>
+
+        <form id="loginForm" class="form">
+          <label>
+            Email Address
+            <input type="email" name="email" class="input-field" required placeholder="farmer@example.com" style="margin-top: 0.5rem;" />
+          </label>
+          <label>
+            Password
+            <input type="password" name="password" class="input-field" required placeholder="••••••••" style="margin-top: 0.5rem;" />
+          </label>
+
+          <button type="submit" class="btn btn-primary btn-large" style="margin-top: 1rem;">Sign In</button>
+          <p class="form-footer">Don’t have an account? <a href="/register.html">Register</a></p>
+        </form>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container">
+        <p>© 2026 LandCoverAI.</p>
+      </div>
+    </footer>
+
+    <script src="js/common.js"></script>
+    <script src="js/auth.js"></script>
+  </body>
+</html>

@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Predict • LandCoverAI</title>
+    <link rel="stylesheet" href="css/style.css" />
+    <!-- Leaflet CSS without SRI to prevent loading errors on CDN updates -->
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      crossorigin=""
+    />
+  </head>
+  <body>
+    <!-- HEADER -->
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="brand" href="/">LandCoverAI</a>
+        <nav class="nav" id="topNav">
+          <a href="/">Home</a>
+          <a href="/predict.html" class="active">Predict</a>
+          <a href="#" id="logoutBtn">Logout</a>
+        </nav>
+      </div>
+    </header>
+
+    <!-- MAIN APP LAYOUT -->
+    <main class="predict-page container">
+      
+      <!-- LOADING SPINNER (Z-Index fixed to overlay map) -->
+      <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner"></div>
+        <h3>Analyzing Terrain...</h3>
+        <p>Running satellite data through the AI model.</p>
+      </div>
+
+      <!-- LEFT PANEL: MAP -->
+      <aside class="panel panel-map">
+        <div class="panel-header">
+          <span class="step-indicator">Step 1</span>
+          <h2>Select an area</h2>
+          <p>Click anywhere on the map to drop a pin, then hit Start Analysis.</p>
+        </div>
+        
+        <!-- The Interactive Leaflet Map -->
+        <div id="map" class="map"></div>
+        
+        <!-- Map Controls -->
+        <div class="panel-footer">
+          <div class="map-controls-row">
+            <!-- Coordinates Readout -->
+            <div class="coord-group">
+              <label>Latitude</label>
+              <div id="lat" style="font-family: monospace; font-size: 1.1rem">—</div>
+            </div>
+            <div class="coord-group">
+              <label>Longitude</label>
+              <div id="lon" style="font-family: monospace; font-size: 1.1rem">—</div>
+            </div>
+            
+            <!-- Range Selection -->
+            <div class="coord-group" style="flex: 1.5">
+              <label for="rangeSelect">Analysis Range</label>
+              <select id="rangeSelect" class="input-field">
+                <option value="500">500m (Close Up)</option>
+                <option value="1000">1km (Medium)</option>
+                <option value="2500" selected>2.5km (Wide)</option>
+                <option value="5000">5km (Very Wide)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Manual Coordinate Entry -->
+          <div class="map-controls-row" style="margin-top: 1rem; border-top: 1px dotted var(--border); padding-top: 1rem;">
+            <div class="coord-group">
+              <label>Manual Go-To</label>
+              <div style="display: flex; gap: 0.5rem">
+                <input id="latInput" class="input-field" type="number" step="0.000001" placeholder="Lat" style="padding: 0.6rem"/>
+                <input id="lonInput" class="input-field" type="number" step="0.000001" placeholder="Lon" style="padding: 0.6rem"/>
+                <button id="gotoBtn" class="btn btn-outline" type="button" style="padding: 0.6rem 1rem;">Go</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Analyze Action -->
+          <div class="analyze-button-container">
+             <button id="analyzeBtn" class="btn btn-primary" disabled>
+                ✨ Start Analysis
+             </button>
+          </div>
+        </div>
+      </aside>
+
+      <!-- RIGHT PANEL: RESULTS -->
+      <aside class="panel panel-results">
+        <div class="panel-header" style="border-bottom: none">
+          <span class="step-indicator">Step 2</span>
+          <h2>Analysis Results</h2>
+          <p>View the AI-identified land cover and bounding boxes.</p>
+        </div>
+        
+        <div class="results">
+          <!-- 1. Custom Image Upload -->
+          <div class="result-card">
+            <h3>📂 Upload Custom Drone/Satellite Image</h3>
+            <p class="muted" style="margin-bottom: 1rem; font-size: 0.9rem;">Have your own photo? Upload it here instead of using the map.</p>
+            <div class="upload-box" onclick="document.getElementById('uploadInput').click()">
+               <input id="uploadInput" type="file" accept="image/*" style="display:none;" />
+               <span style="font-size: 1.5rem">📸</span>
+               <div>
+                  <div style="font-weight: 600">Click to browse files</div>
+                  <div class="muted" style="font-size: 0.85rem" id="uploadFileLabel">No file selected</div>
+               </div>
+            </div>
+            <button id="uploadBtn" class="btn btn-secondary" style="width: 100%; margin-top: 1rem;" disabled>Analyze Uploaded Image</button>
+          </div>
+
+          <!-- 2. Satellite Preview -->
+          <div class="result-card">
+            <h3>🌍 Original Satellite View</h3>
+            <div class="image-preview">
+              <img id="satImage" alt="" />
+            </div>
+          </div>
+
+          <!-- 3. AI Predictions Output -->
+          <div class="result-card">
+            <h3>🤖 AI Land Cover Mask</h3>
+            <div class="image-preview">
+              <img id="predImage" alt="" />
+            </div>
+            <div class="result-actions">
+              <button id="downloadBtn" class="btn btn-outline" disabled>
+                ⬇️ Download Annotated Image
+              </button>
+            </div>
+          </div>
+
+          <!-- 4. Breakdown Table -->
+          <div class="result-card">
+            <h3>📊 Identification Breakdown</h3>
+            <div style="overflow-x: auto; border-radius: 8px; border: 1px solid var(--border);">
+              <table class="table" id="detectionsTable">
+                <thead>
+                  <tr>
+                    <th>Class</th>
+                    <th>Intelligence Confidence</th>
+                    <th>Area (Pixels)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td colspan="3" class="muted">Awaiting analysis... Drop a pin on the map to start.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container">
+        <p>Built for precision agriculture & environmental monitoring. © 2026 LandCoverAI.</p>
+      </div>
+    </footer>
+
+    <!-- Leaflet JS -->
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      crossorigin=""
+    ></script>
+    <script src="js/common.js"></script>
+    <script src="js/predict.js"></script>
+    
+    <!-- UI Helper Script for Custom Upload Input -->
+    <script>
+      document.getElementById('uploadInput').addEventListener('change', function(e) {
+        const fileLabel = document.getElementById('uploadFileLabel');
+        if(this.files && this.files.length > 0) {
+           fileLabel.textContent = this.files[0].name;
+           fileLabel.style.color = "var(--primary)";
+        } else {
+           fileLabel.textContent = "No file selected";
+           fileLabel.style.color = "inherit";
+        }
+      });
+    </script>
+  </body>
+</html>
