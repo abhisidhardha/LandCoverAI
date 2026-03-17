@@ -7,7 +7,7 @@ __pycache__/
 .env
 venv/
 .venv/
-
+.pth
 # Data
 *.sqlite3
 *.db
