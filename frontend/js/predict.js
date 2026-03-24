@@ -111,6 +111,11 @@ async function runPrediction(lat, lon, radius_m) {
       throw new Error(data.error || 'Prediction failed.');
     }
 
+    // Guard: ensure we actually received prediction data
+    if (data.rejected || !data.annotated_image_base64) {
+      throw new Error(data.error || 'Prediction returned no results.');
+    }
+
     const satImg = document.getElementById('satImage');
     satImg.src = `data:image/png;base64,${data.satellite_image_base64}`;
 

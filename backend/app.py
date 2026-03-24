@@ -441,9 +441,34 @@ def get_model():
     return _model_instance
 
 
+def _run_segmentation(bgr: np.ndarray) -> dict:
+    """
+    Core segmentation pipeline (no gate):
+      UNet++ segmentation → land cover masks + bounding boxes
+    """
+    model  = get_model()
+    engine = BBoxEngine(
+        model,
+        device         = str(_device),
+        min_confidence = MIN_CONFIDENCE,
+        min_area_px    = MIN_AREA,
+        nms_iou_thresh = NMS_IOU_THRESH,
+        max_detections = MAX_DETECTIONS,
+    )
+    result = engine.predict_bgr(bgr)
+    return {
+        "detections":             result["detections"],
+        "annotated_image_base64": result["annotated_b64"],
+        "mask_image_base64":      result["mask_b64"],
+        "image_width":            bgr.shape[1],
+        "image_height":           bgr.shape[0],
+        "summary":                result.get("summary", {}),
+    }
+
+
 def predict_from_bytes(image_bytes: bytes) -> dict:
     """
-    Full prediction pipeline:
+    Full prediction pipeline (with satellite gate):
       1. Satellite gate check  → reject non-satellite images immediately
       2. UNet++ segmentation   → land cover masks + bounding boxes
     """
@@ -459,27 +484,21 @@ def predict_from_bytes(image_bytes: bytes) -> dict:
             "error":           "Not a satellite image",
             "satellite_score": score,
         }
-    
-    model  = get_model()
-    engine = BBoxEngine(
-        model,
-        device         = str(_device),
-        min_confidence = MIN_CONFIDENCE,
-        min_area_px    = MIN_AREA,
-        nms_iou_thresh = NMS_IOU_THRESH,
-        max_detections = MAX_DETECTIONS,
-    )
-    result = engine.predict_bgr(bgr)
 
-    return {
-        "detections":             result["detections"],
-        "annotated_image_base64": result["annotated_b64"],
-        "mask_image_base64":      result["mask_b64"],
-        "image_width":            bgr.shape[1],
-        "image_height":           bgr.shape[0],
-        "summary":                result.get("summary", {}),
-        "satellite_score":        score,       
-    }
+    result = _run_segmentation(bgr)
+    result["satellite_score"] = score
+    return result
+
+
+def predict_from_bytes_no_gate(image_bytes: bytes) -> dict:
+    """
+    Prediction pipeline WITHOUT satellite gate.
+    Used for images fetched from ArcGIS (always satellite by definition).
+    """
+    pil    = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    np_img = np.array(pil)
+    bgr    = cv2.cvtColor(np_img, cv2.COLOR_RGB2BGR)
+    return _run_segmentation(bgr)
 
 
 # ==============================================================================
@@ -600,13 +619,11 @@ def create_app():
         except Exception as e:
             return jsonify({"error": f"Could not fetch satellite image: {e}"}), 500
         try:
-            result = predict_from_bytes(tile_bytes)
+            result = predict_from_bytes_no_gate(tile_bytes)
         except Exception as e:
             logging.exception("Prediction failed")
             return jsonify({"error": f"Prediction failed: {e}"}), 500
 
-        # Coordinates endpoint skips gate rejection
-        # (ArcGIS tiles are always satellite by definition)
         return jsonify({
             "satellite_image_base64": base64.b64encode(tile_bytes).decode("ascii"),
             **result,
