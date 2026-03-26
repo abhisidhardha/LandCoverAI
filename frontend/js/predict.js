@@ -33,6 +33,12 @@ function resetResults() {
 
   const tbody = document.querySelector('#detectionsTable tbody');
   tbody.innerHTML = '<tr><td colspan="3" class="muted">No results yet.</td></tr>';
+
+  const profileEl = document.getElementById('landcoverProfile');
+  if (profileEl) profileEl.innerHTML = '<p class="muted">Awaiting analysis...</p>';
+
+  const recEl = document.getElementById('cropRecommendations');
+  if (recEl) recEl.innerHTML = '<p class="muted">Awaiting analysis...</p>';
 }
 
 function renderDetections(detections) {
@@ -59,6 +65,173 @@ function renderDetections(detections) {
 
   tbody.innerHTML = '';
   rows.forEach(r => tbody.appendChild(r));
+}
+
+// ── Land Cover Profile ─────────────────────────────────────
+const LANDCOVER_COLORS = {
+  urban_land:  '#ffd600',
+  agriculture: '#4caf50',
+  rangeland:   '#ff9800',
+  forest:      '#1b5e20',
+  water:       '#1565c0',
+  barren:      '#9e9e9e',
+  unknown:     '#424242',
+};
+
+const LANDCOVER_LABELS = {
+  urban_land:  'Urban',
+  agriculture: 'Agriculture',
+  rangeland:   'Rangeland',
+  forest:      'Forest',
+  water:       'Water',
+  barren:      'Barren',
+  unknown:     'Unknown',
+};
+
+function renderLandcoverProfile(profile) {
+  const container = document.getElementById('landcoverProfile');
+  if (!container || !profile) return;
+
+  // Stacked bar
+  let barHTML = '<div class="lc-bar">';
+  for (const [key, pct] of Object.entries(profile)) {
+    if (pct <= 0) continue;
+    const color = LANDCOVER_COLORS[key] || '#888';
+    const label = LANDCOVER_LABELS[key] || key;
+    barHTML += `<div class="lc-bar-seg" style="width:${pct}%;background:${color}" title="${label}: ${pct}%"></div>`;
+  }
+  barHTML += '</div>';
+
+  // Legend
+  let legendHTML = '<div class="lc-legend">';
+  for (const [key, pct] of Object.entries(profile)) {
+    if (pct <= 0) continue;
+    const color = LANDCOVER_COLORS[key] || '#888';
+    const label = LANDCOVER_LABELS[key] || key;
+    legendHTML += `<span class="lc-legend-item"><span class="lc-dot" style="background:${color}"></span>${label} <b>${pct}%</b></span>`;
+  }
+  legendHTML += '</div>';
+
+  container.innerHTML = barHTML + legendHTML;
+}
+
+// ── Crop Recommendations ───────────────────────────────────
+const CATEGORY_COLORS = {
+  'Cereal':     { bg: '#e8f5e9', text: '#2e7d32' },
+  'Pulse':      { bg: '#f1f8e9', text: '#558b2f' },
+  'Oilseed':    { bg: '#fff8e1', text: '#f9a825' },
+  'Fiber':      { bg: '#e3f2fd', text: '#1565c0' },
+  'Sugar':      { bg: '#f3e5f5', text: '#7b1fa2' },
+  'Plantation': { bg: '#e0f2f1', text: '#00695c' },
+  'Spice':      { bg: '#fbe9e7', text: '#bf360c' },
+  'Vegetable':  { bg: '#e0f7fa', text: '#00838f' },
+  'Fruit':      { bg: '#fce4ec', text: '#c62828' },
+  'Other':      { bg: '#ede7f6', text: '#512da8' },
+};
+
+function renderRecommendations(cropData) {
+  const container = document.getElementById('cropRecommendations');
+  if (!container || !cropData) return;
+
+  const { recommendations, explanations } = cropData;
+  if (!recommendations || recommendations.length === 0) {
+    container.innerHTML = '<p class="muted">No crop recommendations for this area.</p>';
+    return;
+  }
+
+  container.innerHTML = '';
+
+  recommendations.forEach((crop, idx) => {
+    const card = document.createElement('div');
+    card.className = 'crop-card';
+    card.style.animationDelay = `${idx * 0.05}s`;
+
+    const catColor = CATEGORY_COLORS[crop.category] || { bg: '#f5f5f5', text: '#333' };
+    const score = crop.suitability_score;
+    const scoreColor = score >= 70 ? '#2e7d32' : score >= 40 ? '#f57f17' : '#c62828';
+    const sciName = crop.scientific_name || '';
+
+    // SHAP contributions (top 6 — one per land cover type)
+    const shapData = explanations?.[String(crop.crop_id)] || [];
+    const topShap = shapData.slice(0, 6);
+
+    let shapHTML = '';
+    if (topShap.length > 0) {
+      const maxAbs = Math.max(...topShap.map(s => Math.abs(s.shap_value)), 0.01);
+      shapHTML = '<div class="shap-chart">';
+      topShap.forEach(s => {
+        const pct = Math.min(Math.abs(s.shap_value) / maxAbs * 100, 100);
+        const isPositive = s.shap_value >= 0;
+        const barColor = isPositive ? '#2e7d32' : '#c62828';
+        const featureLabel = s.feature.replace('pct_', '').replace('_', ' ');
+        const obsVal = s.value !== undefined ? ` (${s.value}%)` : '';
+        shapHTML += `
+          <div class="shap-row">
+            <span class="shap-label">${featureLabel}${obsVal}</span>
+            <div class="shap-bar-track">
+              <div class="shap-bar-fill" style="width:${pct}%;background:${barColor}"></div>
+            </div>
+            <span class="shap-val" style="color:${barColor}">${isPositive ? '+' : ''}${s.shap_value.toFixed(2)}</span>
+          </div>`;
+      });
+      shapHTML += '</div>';
+    }
+
+    // Build agricultural details HTML
+    const gc = crop.growing_conditions || {};
+    let agriHTML = '';
+    if (crop.explanation || gc.soil_type) {
+      agriHTML = '<div class="agri-details-content">';
+      if (crop.explanation) {
+        agriHTML += `<div class="agri-explain"><strong>Why this crop?</strong> ${crop.explanation}</div>`;
+      }
+      if (gc.soil_type || gc.temperature_range || gc.annual_rainfall || gc.soil_ph || gc.growing_season) {
+        agriHTML += '<table class="agri-table"><tbody>';
+        if (gc.soil_type)          agriHTML += `<tr><td class="agri-lbl">🌱 Soil</td><td>${gc.soil_type}</td></tr>`;
+        if (gc.temperature_range)  agriHTML += `<tr><td class="agri-lbl">🌡️ Temperature</td><td>${gc.temperature_range}</td></tr>`;
+        if (gc.annual_rainfall)    agriHTML += `<tr><td class="agri-lbl">🌧️ Rainfall</td><td>${gc.annual_rainfall}</td></tr>`;
+        if (gc.soil_ph)            agriHTML += `<tr><td class="agri-lbl">⚗️ Soil pH</td><td>${gc.soil_ph}</td></tr>`;
+        if (gc.growing_season)     agriHTML += `<tr><td class="agri-lbl">📅 Season</td><td>${gc.growing_season}</td></tr>`;
+        agriHTML += '</tbody></table>';
+      }
+      if (crop.fertilizers) {
+        agriHTML += `<div class="agri-field"><span class="agri-tag">💊 Fertilizers</span> ${crop.fertilizers}</div>`;
+      }
+      if (crop.best_regions) {
+        agriHTML += `<div class="agri-field"><span class="agri-tag">📍 Best Regions</span> ${crop.best_regions}</div>`;
+      }
+      if (crop.key_practices) {
+        agriHTML += `<div class="agri-field"><span class="agri-tag">🔧 Key Practices</span> ${crop.key_practices}</div>`;
+      }
+      agriHTML += '</div>';
+    }
+
+    card.innerHTML = `
+      <div class="crop-card-header">
+        <div class="crop-rank">#${idx + 1}</div>
+        <div class="crop-info">
+          <div class="crop-name">${crop.name}</div>
+          ${sciName ? `<div class="crop-sci-name">${sciName}</div>` : ''}
+          <div class="crop-badges">
+            <span class="crop-cat-badge" style="background:${catColor.bg};color:${catColor.text}">${crop.category}</span>
+          </div>
+        </div>
+      </div>
+      <div class="crop-score">
+        <div class="crop-score-header">
+          <span>Suitability</span>
+          <span style="font-weight:700;color:${scoreColor}">${score.toFixed(1)}%</span>
+        </div>
+        <div class="crop-score-track">
+          <div class="crop-score-fill" style="width:${score}%;background:${scoreColor}"></div>
+        </div>
+      </div>
+      ${agriHTML ? `<details class="agri-details"><summary>📋 Agricultural Details</summary>${agriHTML}</details>` : ''}
+      ${shapHTML ? `<details class="shap-details"><summary>🔍 SHAP Analysis</summary>${shapHTML}</details>` : ''}
+    `;
+
+    container.appendChild(card);
+  });
 }
 
 function setupDownload(imageBase64) {
@@ -124,6 +297,13 @@ async function runPrediction(lat, lon, radius_m) {
 
     renderDetections(data.detections || []);
     setupDownload(data.annotated_image_base64);
+
+    // Crop recommendations
+    if (data.crop_recommendations) {
+      renderLandcoverProfile(data.crop_recommendations.landcover_profile);
+      renderRecommendations(data.crop_recommendations);
+    }
+
     showToast('Prediction complete!', 'success');
   } catch (err) {
     console.error(err);
@@ -144,11 +324,40 @@ function initMap() {
   // Fix missing marker images when using unpkg
   L.Icon.Default.imagePath = 'https://unpkg.com/leaflet@1.9.4/dist/images/';
 
-  const center = [0, 0];
+  const defaultCenter = [22.9074, 79.1469]; // Central India fallback
   map = L.map('map', {
-    center,
-    zoom: 2,
+    center: defaultCenter,
+    zoom: 5,
   });
+
+  // 1. Try HTML5 Geolocation
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        map.setView([latitude, longitude], 14); // Tight zoom for actual GPS
+      },
+      (error) => {
+        console.warn('Geolocation denied or unavailable. Trying IP fallback.', error);
+        fetchIpLocation();
+      },
+      { timeout: 6000 }
+    );
+  } else {
+    fetchIpLocation();
+  }
+
+  // 2. Fallback to IP Geolocation
+  function fetchIpLocation() {
+    fetch('https://ipapi.co/json/')
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.latitude && data.longitude) {
+          map.setView([data.latitude, data.longitude], 10); // Broader zoom for region/city
+        }
+      })
+      .catch(err => console.error('IP location failed:', err));
+  }
 
   L.tileLayer(
     'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
@@ -268,6 +477,13 @@ window.addEventListener('DOMContentLoaded', () => {
 
       renderDetections(data.detections || []);
       setupDownload(data.annotated_image_base64);
+
+      // Crop recommendations
+      if (data.crop_recommendations) {
+        renderLandcoverProfile(data.crop_recommendations.landcover_profile);
+        renderRecommendations(data.crop_recommendations);
+      }
+
       showToast('Prediction complete!', 'success');
     } catch (err) {
       console.error(err);

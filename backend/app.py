@@ -25,6 +25,8 @@ import segmentation_models_pytorch as smp
 from flask import Flask, send_from_directory, jsonify, request, g
 from flask_cors import CORS
 
+from crop_recommender import generate_recommendations
+
 # ==============================================================================
 # CONFIGURATION & CONSTANTS
 # ==============================================================================
@@ -463,6 +465,7 @@ def _run_segmentation(bgr: np.ndarray) -> dict:
         "image_width":            bgr.shape[1],
         "image_height":           bgr.shape[0],
         "summary":                result.get("summary", {}),
+        "class_mask":             result["class_mask"],
     }
 
 
@@ -597,6 +600,15 @@ def create_app():
         if result.get("rejected"):
             return jsonify(result), 422
 
+        # Add crop recommendations
+        try:
+            class_mask = result.pop("class_mask", None)
+            if class_mask is not None:
+                rec = generate_recommendations(class_mask, top_k=10)
+                result["crop_recommendations"] = rec
+        except Exception as e:
+            logging.warning("Crop recommendation failed: %s", e)
+
         return jsonify(result)
 
     @app.route("/api/predict/coordinates", methods=["POST"])
@@ -624,6 +636,15 @@ def create_app():
             logging.exception("Prediction failed")
             return jsonify({"error": f"Prediction failed: {e}"}), 500
 
+        # Add crop recommendations
+        try:
+            class_mask = result.pop("class_mask", None)
+            if class_mask is not None:
+                rec = generate_recommendations(class_mask, top_k=20)
+                result["crop_recommendations"] = rec
+        except Exception as e:
+            logging.warning("Crop recommendation failed: %s", e)
+
         return jsonify({
             "satellite_image_base64": base64.b64encode(tile_bytes).decode("ascii"),
             **result,
@@ -641,6 +662,13 @@ def create_app():
         logging.info("Satellite gate v4 warmup completed")
     except Exception as err:
         logging.warning("Satellite gate warmup failed: %s", err)
+
+    try:
+        from crop_recommender import get_recommender
+        get_recommender()
+        logging.info("Crop recommender warmup completed")
+    except Exception as err:
+        logging.warning("Crop recommender warmup failed: %s", err)
 
     # ── Static file serving ──────────────────────────────────────────────────
     @app.route("/", defaults={"path": ""})

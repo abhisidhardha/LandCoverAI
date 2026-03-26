@@ -1,0 +1,139 @@
+=========================================
+      LANDCOVER AI - CROP REGISTRY       
+=========================================
+
+Total Crops Supported: 100
+
+--- ALL 100 CROPS ---
+01. Rice (Paddy)              | Oryza sativa              | Cereal
+02. Wheat                     | Triticum aestivum         | Cereal
+03. Maize / Corn              | Zea mays                  | Cereal
+04. Sorghum / Jowar           | Sorghum bicolor           | Cereal
+05. Pearl Millet / Bajra      | Pennisetum glaucum        | Cereal
+06. Finger Millet / Ragi      | Eleusine coracana         | Cereal
+07. Barley                    | Hordeum vulgare           | Cereal
+08. Oats                      | Avena sativa              | Cereal
+09. Rye                       | Secale cereale            | Cereal
+10. Triticale                 | ×Triticosecale            | Cereal
+11. Teff                      | Eragrostis tef            | Cereal
+12. Foxtail Millet / Kangni   | Setaria italica           | Cereal
+13. Kodo Millet               | Paspalum scrobiculatum    | Cereal
+14. Little Millet / Kutki     | Panicum sumatrense        | Cereal
+15. Proso Millet              | Panicum miliaceum         | Cereal
+16. Chickpea / Chana          | Cicer arietinum           | Pulse
+17. Pigeon Pea / Tur (Arhar)  | Cajanus cajan             | Pulse
+18. Lentil / Masur            | Lens culinaris            | Pulse
+19. Green Gram / Moong        | Vigna radiata             | Pulse
+20. Black Gram / Urad         | Vigna mungo               | Pulse
+21. Kidney Bean / Rajma       | Phaseolus vulgaris        | Pulse
+22. Cowpea / Lobia            | Vigna unguiculata         | Pulse
+23. Field Pea                 | Pisum sativum             | Pulse
+24. Soybean                   | Glycine max               | Pulse
+25. Moth Bean                 | Vigna aconitifolia        | Pulse
+26. Horse Gram / Kulthi       | Macrotyloma uniflorum     | Pulse
+27. Cluster Bean / Guar       | Cyamopsis tetragonoloba   | Pulse
+28. Groundnut / Peanut        | Arachis hypogaea          | Oilseed
+29. Mustard / Rapeseed        | Brassica juncea / napus   | Oilseed
+30. Sunflower                 | Helianthus annuus         | Oilseed
+31. Sesame / Til              | Sesamum indicum           | Oilseed
+32. Linseed / Flax            | Linum usitatissimum       | Oilseed
+33. Castor                    | Ricinus communis          | Oilseed
+34. Safflower                 | Carthamus tinctorius      | Oilseed
+35. Niger / Ramtil            | Guizotia abyssinica       | Oilseed
+36. Palm Oil                  | Elaeis guineensis         | Oilseed
+37. Coconut                   | Cocos nucifera            | Oilseed
+38. Cotton (American Upland)  | Gossypium hirsutum        | Fiber
+39. Cotton (Desi)             | Gossypium arboreum        | Fiber
+40. Jute                      | Corchorus olitorius/capsularis | Fiber
+41. Hemp                      | Cannabis sativa           | Fiber
+42. Kenaf                     | Hibiscus cannabinus       | Fiber
+43. Sugarcane                 | Saccharum officinarum     | Sugar
+44. Sugar Beet                | Beta vulgaris subsp. vulgaris | Sugar
+45. Tea                       | Camellia sinensis         | Plantation
+46. Coffee Arabica            | Coffea arabica            | Plantation
+47. Coffee Robusta            | Coffea canephora          | Plantation
+48. Rubber                    | Hevea brasiliensis        | Plantation
+49. Tobacco                   | Nicotiana tabacum         | Plantation
+50. Cocoa                     | Theobroma cacao           | Plantation
+51. Cashew                    | Anacardium occidentale    | Plantation
+52. Black Pepper              | Piper nigrum              | Spice
+53. Cardamom (Large)          | Amomum subulatum          | Spice
+54. Cardamom (Small/Green)    | Elettaria cardamomum      | Spice
+55. Turmeric                  | Curcuma longa             | Spice
+56. Ginger                    | Zingiber officinale       | Spice
+57. Chili / Capsicum          | Capsicum annuum           | Spice
+58. Coriander / Dhania        | Coriandrum sativum        | Spice
+59. Cumin / Jeera             | Cuminum cyminum           | Spice
+60. Fenugreek / Methi         | Trigonella foenum-graecum | Spice
+61. Clove                     | Syzygium aromaticum       | Spice
+62. Nutmeg                    | Myristica fragrans        | Spice
+63. Vanilla                   | Vanilla planifolia        | Spice
+64. Saffron                   | Crocus sativus            | Spice
+65. Fennel / Saunf            | Foeniculum vulgare        | Spice
+66. Potato                    | Solanum tuberosum         | Vegetable
+67. Onion                     | Allium cepa               | Vegetable
+68. Tomato                    | Lycopersicum esculentum   | Vegetable
+69. Brinjal / Eggplant        | Solanum melongena         | Vegetable
+70. Cabbage                   | Brassica oleracea var. capitata | Vegetable
+71. Cauliflower               | Brassica oleracea var. botrytis | Vegetable
+72. Garlic                    | Allium sativum            | Vegetable
+73. Okra / Lady's Finger      | Abelmoschus esculentus    | Vegetable
+74. Pumpkin / Kaddu           | Cucurbita maxima          | Vegetable
+75. Cucumber                  | Cucumis sativus           | Vegetable
+76. Cassava / Tapioca         | Manihot esculenta         | Vegetable
+77. Sweet Potato              | Ipomoea batatas           | Vegetable
+78. Yam                       | Dioscorea spp.            | Vegetable
+79. Taro / Colocasia          | Colocasia esculenta       | Vegetable
+80. Spinach                   | Spinacia oleracea         | Vegetable
+81. Carrot                    | Daucus carota             | Vegetable
+82. Mango                     | Mangifera indica          | Fruit
+83. Banana                    | Musa spp.                 | Fruit
+84. Papaya                    | Carica papaya             | Fruit
+85. Guava                     | Psidium guajava           | Fruit
+86. Pomegranate / Anar        | Punica granatum           | Fruit
+87. Grapes                    | Vitis vinifera            | Fruit
+88. Apple                     | Malus domestica           | Fruit
+89. Orange / Citrus           | Citrus sinensis           | Fruit
+90. Lemon / Lime              | Citrus limon / aurantifolia | Fruit
+91. Sapota / Chiku            | Manilkara zapota          | Fruit
+92. Pineapple                 | Ananas comosus            | Fruit
+93. Avocado                   | Persea americana          | Fruit
+94. Strawberry                | Fragaria × ananassa       | Fruit
+95. Olive                     | Olea europaea             | Fruit
+96. Date Palm                 | Phoenix dactylifera       | Fruit
+97. Jackfruit / Kathal        | Artocarpus heterophyllus  | Fruit
+98. Litchi                    | Litchi chinensis          | Fruit
+99. Moringa / Drumstick       | Moringa oleifera          | Other
+100. Jatropha (Biofuel)        | Jatropha curcas           | Other
+
+=========================================
+    CLASSIFICATION BY LAND COVER AFFINITY   
+=========================================
+
+Note: Crops are classified based on their suitability percentages for each land cover type.
+Many crops belong to multiple categories (e.g., both Agriculture and Forest).
+
+1. AGRICULTURE DOIMINANT (Standard Arable Land, Suitability >= 40%)
+-----------------------------------------------------------------
+Apple, Avocado, Banana, Barley, Black Gram / Urad, Black Pepper, Brinjal / Eggplant, Cabbage, Cardamom (Large), Cardamom (Small/Green), Carrot, Cashew, Cassava / Tapioca, Castor, Cauliflower, Chickpea / Chana, Chili / Capsicum, Clove, Cluster Bean / Guar, Cocoa, Coconut, Coffee Arabica, Coffee Robusta, Coriander / Dhania, Cotton (American Upland), Cotton (Desi), Cowpea / Lobia, Cucumber, Cumin / Jeera, Date Palm, Fennel / Saunf, Fenugreek / Methi, Field Pea, Finger Millet / Ragi, Foxtail Millet / Kangni, Garlic, Ginger, Grapes, Green Gram / Moong, Groundnut / Peanut, Guava, Hemp, Horse Gram / Kulthi, Jackfruit / Kathal, Jatropha (Biofuel), Jute, Kenaf, Kidney Bean / Rajma, Kodo Millet, Lemon / Lime, Lentil / Masur, Linseed / Flax, Litchi, Little Millet / Kutki, Maize / Corn, Mango, Moringa / Drumstick, Moth Bean, Mustard / Rapeseed, Niger / Ramtil, Nutmeg, Oats, Okra / Lady's Finger, Olive, Onion, Orange / Citrus, Palm Oil, Papaya, Pearl Millet / Bajra, Pigeon Pea / Tur (Arhar), Pineapple, Pomegranate / Anar, Potato, Proso Millet, Pumpkin / Kaddu, Rice (Paddy), Rubber, Rye, Safflower, Saffron, Sapota / Chiku, Sesame / Til, Sorghum / Jowar, Soybean, Spinach, Strawberry, Sugar Beet, Sugarcane, Sunflower, Sweet Potato, Taro / Colocasia, Tea, Teff, Tobacco, Tomato, Triticale, Turmeric, Vanilla, Wheat, Yam
+
+2. FOREST / AGROFORESTRY / SHADE-TOLERANT (Suitability >= 20%)
+--------------------------------------------------------------
+Apple, Avocado, Banana, Black Pepper, Cardamom (Large), Cardamom (Small/Green), Cashew, Cassava / Tapioca, Clove, Cocoa, Coconut, Coffee Arabica, Coffee Robusta, Ginger, Jackfruit / Kathal, Litchi, Nutmeg, Palm Oil, Pineapple, Rubber, Taro / Colocasia, Tea, Turmeric, Vanilla, Yam
+
+3. BARREN / DRYLAND / HARDY CROPS (Suitability >= 20%)
+------------------------------------------------------
+Barley, Cashew, Cassava / Tapioca, Castor, Chickpea / Chana, Cluster Bean / Guar, Cotton (Desi), Cowpea / Lobia, Cumin / Jeera, Date Palm, Fennel / Saunf, Fenugreek / Methi, Finger Millet / Ragi, Foxtail Millet / Kangni, Grapes, Groundnut / Peanut, Guava, Horse Gram / Kulthi, Jatropha (Biofuel), Kodo Millet, Lentil / Masur, Little Millet / Kutki, Moringa / Drumstick, Moth Bean, Niger / Ramtil, Olive, Pearl Millet / Bajra, Pigeon Pea / Tur (Arhar), Pomegranate / Anar, Proso Millet, Rye, Safflower, Saffron, Sesame / Til, Sorghum / Jowar, Sunflower, Teff, Triticale
+
+4. RANGELAND / PASTURE / OPEN TRACTS (Suitability >= 20%)
+---------------------------------------------------------
+Barley, Black Gram / Urad, Cassava / Tapioca, Castor, Chickpea / Chana, Cluster Bean / Guar, Coriander / Dhania, Cotton (American Upland), Cotton (Desi), Cowpea / Lobia, Cumin / Jeera, Date Palm, Fennel / Saunf, Fenugreek / Methi, Field Pea, Finger Millet / Ragi, Foxtail Millet / Kangni, Grapes, Green Gram / Moong, Groundnut / Peanut, Guava, Hemp, Horse Gram / Kulthi, Jatropha (Biofuel), Kidney Bean / Rajma, Kodo Millet, Lemon / Lime, Lentil / Masur, Linseed / Flax, Little Millet / Kutki, Maize / Corn, Moringa / Drumstick, Moth Bean, Mustard / Rapeseed, Niger / Ramtil, Oats, Olive, Pearl Millet / Bajra, Pigeon Pea / Tur (Arhar), Pomegranate / Anar, Proso Millet, Rye, Safflower, Saffron, Sesame / Til, Sorghum / Jowar, Sunflower, Sweet Potato, Teff, Triticale, Wheat
+
+5. WATER-AFFINITY / HIGH MOISTURE (Suitability >= 15%)
+------------------------------------------------------
+Jute, Rice (Paddy), Taro / Colocasia
+
+6. URBAN / PERI-URBAN (Suitability >= 15%)
+------------------------------------------
+
+
