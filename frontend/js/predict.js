@@ -38,6 +38,9 @@ function resetResults() {
   const profileEl = document.getElementById('landcoverProfile');
   if (profileEl) profileEl.innerHTML = `<p class="muted">${t('awaiting') || 'Awaiting analysis...'}</p>`;
 
+  const climateEl = document.getElementById('climateContainer');
+  if (climateEl) climateEl.innerHTML = `<p class="muted">${t('awaiting') || 'Awaiting analysis...'}</p>`;
+
   const recEl = document.getElementById('cropRecommendations');
   if (recEl) recEl.innerHTML = `<p class="muted">${t('awaiting') || 'Awaiting analysis...'}</p>`;
 
@@ -118,6 +121,55 @@ function renderLandcoverProfile(profile) {
   legendHTML += '</div>';
 
   container.innerHTML = barHTML + legendHTML;
+}
+
+function renderClimateFeatures(climate) {
+  const container = document.getElementById('climateContainer');
+  if (!container) return;
+
+  if (!climate || typeof climate !== 'object') {
+    container.innerHTML = `<p class="muted">${t('awaiting') || 'Awaiting analysis...'}</p>`;
+    return;
+  }
+
+  const fmtNum = (value, digits = 1, suffix = '') => {
+    if (value === null || value === undefined || Number.isNaN(Number(value))) return 'N/A';
+    return `${Number(value).toFixed(digits)}${suffix}`;
+  };
+
+  const rainfall = fmtNum(climate.rainfall_mm, 1, ' mm/year');
+  const tempAvg = fmtNum(climate.temp_avg, 1, '°C');
+  const tempMin = fmtNum(climate.temp_min, 1, '°C');
+  const tempMax = fmtNum(climate.temp_max, 1, '°C');
+  const elevation = fmtNum(climate.elevation_m, 0, ' m');
+  const soilType = climate.soil_type || 'N/A';
+  const agroZone = climate.agro_zone || 'N/A';
+
+  container.innerHTML = `
+    <div class="climate-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;">
+      <div class="climate-pill" style="padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:rgba(0,0,0,0.02);">
+        <div style="font-size:0.8rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;">Rainfall</div>
+        <div style="font-weight:700;font-size:1.05rem;">${rainfall}</div>
+      </div>
+      <div class="climate-pill" style="padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:rgba(0,0,0,0.02);">
+        <div style="font-size:0.8rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;">Temperature</div>
+        <div style="font-weight:700;font-size:1.05rem;">${tempAvg}</div>
+        <div class="muted" style="font-size:0.82rem;">${tempMin} to ${tempMax}</div>
+      </div>
+      <div class="climate-pill" style="padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:rgba(0,0,0,0.02);">
+        <div style="font-size:0.8rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;">Elevation</div>
+        <div style="font-weight:700;font-size:1.05rem;">${elevation}</div>
+      </div>
+      <div class="climate-pill" style="padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:rgba(0,0,0,0.02);">
+        <div style="font-size:0.8rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;">Soil Type</div>
+        <div style="font-weight:700;font-size:1.05rem;">${soilType}</div>
+      </div>
+      <div class="climate-pill" style="padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:rgba(0,0,0,0.02);">
+        <div style="font-size:0.8rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;">Agro Zone</div>
+        <div style="font-weight:700;font-size:1.05rem;">${agroZone}</div>
+      </div>
+    </div>
+  `;
 }
 
 // ── Crop Recommendations ───────────────────────────────────
@@ -278,8 +330,9 @@ function renderRecommendations(cropData) {
       card.style.animationDelay = `${globalRank * 0.04}s`;
 
       const catColor = CATEGORY_COLORS[crop.category] || { bg: '#f5f5f5', text: '#333' };
-      const score = crop.suitability_score;
-      const scoreColor = score >= 70 ? '#2e7d32' : score >= 40 ? '#f57f17' : '#c62828';
+      const score = Number(crop.suitability_score ?? 0);
+      const safeScore = Number.isFinite(score) ? score : 0;
+      const scoreColor = safeScore >= 70 ? '#2e7d32' : safeScore >= 40 ? '#f57f17' : '#c62828';
       const sciName = crop.scientific_name || '';
 
       // SHAP contributions
@@ -288,11 +341,19 @@ function renderRecommendations(cropData) {
 
       let shapHTML = '';
       if (topShap.length > 0) {
-        const maxAbs = Math.max(...topShap.map(s => Math.abs(s.shap_value)), 0.01);
+        const maxAbs = Math.max(
+          ...topShap.map(s => {
+            const v = Number(s?.shap_value);
+            return Number.isFinite(v) ? Math.abs(v) : 0;
+          }),
+          0.01
+        );
         shapHTML = '<div class="shap-chart">';
         topShap.forEach(s => {
-          const pct = Math.min(Math.abs(s.shap_value) / maxAbs * 100, 100);
-          const isPositive = s.shap_value >= 0;
+          const shapValue = Number(s?.shap_value);
+          const safeShap = Number.isFinite(shapValue) ? shapValue : 0;
+          const pct = Math.min(Math.abs(safeShap) / maxAbs * 100, 100);
+          const isPositive = safeShap >= 0;
           const barColor = isPositive ? '#2e7d32' : '#c62828';
           const featureLabel = s.feature.replace('pct_', '').replace('_', ' ');
           const obsVal = s.value !== undefined ? ` (${s.value}%)` : '';
@@ -302,7 +363,7 @@ function renderRecommendations(cropData) {
               <div class="shap-bar-track">
                 <div class="shap-bar-fill" style="width:${pct}%;background:${barColor}"></div>
               </div>
-              <span class="shap-val" style="color:${barColor}">${isPositive ? '+' : ''}${s.shap_value.toFixed(2)}</span>
+              <span class="shap-val" style="color:${barColor}">${isPositive ? '+' : ''}${safeShap.toFixed(2)}</span>
             </div>`;
         });
         shapHTML += '</div>';
@@ -310,18 +371,20 @@ function renderRecommendations(cropData) {
 
       // Agricultural details HTML
       const gc = crop.growing_conditions || {};
+      const gcRainfall = gc.annual_rainfall || gc.rainfall_mm || '';
+      const gcSoilPh = gc.soil_ph || gc.ph_range || '';
       let agriHTML = '';
       if (crop.explanation || gc.soil_type) {
         agriHTML = '<div class="agri-details-content">';
         if (crop.explanation) {
           agriHTML += `<div class="agri-explain"><strong>${t('why_crop') || 'Why this crop?'}</strong> ${crop.explanation}</div>`;
         }
-        if (gc.soil_type || gc.temperature_range || gc.annual_rainfall || gc.soil_ph || gc.growing_season) {
+        if (gc.soil_type || gc.temperature_range || gcRainfall || gcSoilPh || gc.growing_season) {
           agriHTML += '<table class="agri-table"><tbody>';
           if (gc.soil_type)          agriHTML += `<tr><td class="agri-lbl">${t('soil_label') || 'Soil'}</td><td>${gc.soil_type}</td></tr>`;
           if (gc.temperature_range)  agriHTML += `<tr><td class="agri-lbl">${t('temp_label') || 'Temperature'}</td><td>${gc.temperature_range}</td></tr>`;
-          if (gc.annual_rainfall)    agriHTML += `<tr><td class="agri-lbl">${t('rain_label') || 'Rainfall'}</td><td>${gc.annual_rainfall}</td></tr>`;
-          if (gc.soil_ph)            agriHTML += `<tr><td class="agri-lbl">${t('ph_label') || 'Soil pH'}</td><td>${gc.soil_ph}</td></tr>`;
+          if (gcRainfall)            agriHTML += `<tr><td class="agri-lbl">${t('rain_label') || 'Rainfall'}</td><td>${gcRainfall}</td></tr>`;
+          if (gcSoilPh)              agriHTML += `<tr><td class="agri-lbl">${t('ph_label') || 'Soil pH'}</td><td>${gcSoilPh}</td></tr>`;
           if (gc.growing_season)     agriHTML += `<tr><td class="agri-lbl">${t('season_label') || 'Season'}</td><td>${gc.growing_season}</td></tr>`;
           agriHTML += '</tbody></table>';
         }
@@ -392,10 +455,10 @@ function renderRecommendations(cropData) {
           <div class="crop-score" style="margin-bottom: 0; min-width: 200px; max-width: 380px; flex: 1;">
             <div class="crop-score-header">
               <span>${t('suitability') || 'Suitability'}</span>
-              <span style="font-weight:700;color:${scoreColor}">${score.toFixed(1)}%</span>
+              <span style="font-weight:700;color:${scoreColor}">${safeScore.toFixed(1)}%</span>
             </div>
             <div class="crop-score-track">
-              <div class="crop-score-fill" style="width:${score}%;background:${scoreColor}"></div>
+              <div class="crop-score-fill" style="width:${safeScore}%;background:${scoreColor}"></div>
             </div>
           </div>
         </div>
@@ -485,8 +548,11 @@ async function runPrediction(lat, lon, radius_m) {
     // Crop recommendations
     if (data.crop_recommendations) {
       renderLandcoverProfile(data.crop_recommendations.landcover_profile);
+      renderClimateFeatures(data.climate_features || data.crop_recommendations.climate_features);
       renderCropOverview(data.crop_recommendations);
       renderRecommendations(data.crop_recommendations);
+    } else {
+      renderClimateFeatures(null);
     }
 
     showToast(t('prediction_complete') || 'Prediction complete!', 'success');
@@ -678,8 +744,11 @@ window.addEventListener('DOMContentLoaded', () => {
       // Crop recommendations
       if (data.crop_recommendations) {
         renderLandcoverProfile(data.crop_recommendations.landcover_profile);
+        renderClimateFeatures(data.climate_features || data.crop_recommendations.climate_features);
         renderCropOverview(data.crop_recommendations);
         renderRecommendations(data.crop_recommendations);
+      } else {
+        renderClimateFeatures(null);
       }
 
       showToast(t('prediction_complete') || 'Prediction complete!', 'success');

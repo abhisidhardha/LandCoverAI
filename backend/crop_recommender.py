@@ -565,12 +565,16 @@ def _compute_suitability(observed_pct: np.ndarray, crop_row: list) -> tuple:
 
     return round(final_score, 1), contrib_list
 
-def _compute_suitability_with_uncertainty(observed_pct: np.ndarray, crop_row: list) -> tuple:
+def _compute_suitability_with_uncertainty(observed_pct: np.ndarray, crop_row: list,
+                                          climate_features: Optional[Dict] = None) -> tuple:
     """
     Monte Carlo simulation to estimate prediction uncertainty.
     Returns: (base_score, contribs, confidence_interval, risk_level)
     """
     base_score, contribs = _compute_suitability(observed_pct, crop_row)
+    climate_score = climate_suitability_score(int(crop_row[0]), climate_features)
+    climate_component = _climate_normalized_score(climate_score)
+    adjusted_score = float(np.clip((0.70 * base_score) + (0.30 * climate_component), 0.0, 100.0))
 
     num_simulations = 100
     simulated_scores = []
@@ -582,7 +586,7 @@ def _compute_suitability_with_uncertainty(observed_pct: np.ndarray, crop_row: li
         if total > 0:
             noisy_obs = noisy_obs / total * 100.0
         sim_score, _ = _compute_suitability(noisy_obs, crop_row)
-        simulated_scores.append(sim_score)
+        simulated_scores.append(float(np.clip((0.70 * sim_score) + (0.30 * climate_component), 0.0, 100.0)))
 
     confidence_interval = (
         round(float(np.percentile(simulated_scores, 5)), 1),
@@ -592,7 +596,7 @@ def _compute_suitability_with_uncertainty(observed_pct: np.ndarray, crop_row: li
     spread = confidence_interval[1] - confidence_interval[0]
     risk_level = "Low" if spread < 10 else "Moderate" if spread < 25 else "High"
 
-    return base_score, contribs, confidence_interval, risk_level
+    return round(adjusted_score, 1), contribs, confidence_interval, risk_level
 
 # ============================================================================
 # v2: DIVERSITY-AWARE TOP-K SELECTION
@@ -787,7 +791,8 @@ class CropRecommender:
 
     def recommend_and_explain(self, observed_pct: np.ndarray, top_k: int = 15,
                               current_month: int = None,
-                              previous_crop_id: int = None) -> tuple:
+                              previous_crop_id: int = None,
+                              climate_features: Optional[Dict] = None) -> tuple:
         """
         v3: Score all 100 crops with rule-based engine, apply terrain
         bonuses, seasonal/rotational rules, then select diverse top-K across
@@ -803,7 +808,10 @@ class CropRecommender:
         all_explanations = {}
 
         for crop in CROP_DATA:
-            score, contribs, ci, risk = _compute_suitability_with_uncertainty(observed_pct, crop)
+            climate_score = climate_suitability_score(crop[0], climate_features)
+            score, contribs, ci, risk = _compute_suitability_with_uncertainty(
+                observed_pct, crop, climate_features=climate_features
+            )
             fav = _crop_profile_vector(crop)
 
             # ── Apply terrain archetype bonuses ──────────────────────────
@@ -841,6 +849,8 @@ class CropRecommender:
                 "confidence_interval": ci_adjusted,
                 "prediction_risk":     risk,
                 "terrain_bonus_pts":   round(float(terrain_bonus), 1),
+                "climate_bonus_pts":   round(float(climate_score), 1),
+                "climate_features":    climate_features,
                 "favorable": {
                     "urban":       crop[4],
                     "agriculture": crop[5],
@@ -871,6 +881,8 @@ class CropRecommender:
                 terrain_name=terrain_name,
                 terrain_bonus=terrain_bonus,
                 crop_name=crop[1],
+                climate_features=climate_features,
+                climate_score=climate_score,
             )
             if explanation:
                 rec["explanation"] = f"<strong>AI Land Analysis:</strong> {explanation}"
@@ -884,6 +896,8 @@ class CropRecommender:
                 "scoring_method": "weighted_affinity_with_graduated_penalties",
                 "terrain_detected": terrain_name,
                 "terrain_bonus_pts": round(float(terrain_bonus), 1),
+                "climate_bonus_pts": round(float(climate_score), 1),
+                "climate_features": climate_features,
                 "ci_low": ci_adjusted[0],
                 "ci_high": ci_adjusted[1],
                 "uncertainty_level": risk,
@@ -977,7 +991,8 @@ def get_recommender() -> CropRecommender:
 
 def generate_recommendations(class_mask: np.ndarray, top_k: int = 15,
                              current_month: int = None,
-                             previous_crop_id: int = None) -> Dict:
+                             previous_crop_id: int = None,
+                             climate_features: Optional[Dict] = None) -> Dict:
     """
     Full recommendation pipeline:
       1. Convert segmentation mask pixels → land cover percentages
@@ -1002,7 +1017,8 @@ def generate_recommendations(class_mask: np.ndarray, top_k: int = 15,
     seg_pcts = features["seg_pcts"]
 
     recommendations, explanations, terrain_info = recommender.recommend_and_explain(
-        observed, top_k=top_k, current_month=current_month, previous_crop_id=previous_crop_id
+        observed, top_k=top_k, current_month=current_month, previous_crop_id=previous_crop_id,
+        climate_features=climate_features
     )
 
     profile = {}
@@ -1014,6 +1030,7 @@ def generate_recommendations(class_mask: np.ndarray, top_k: int = 15,
         "explanations":           explanations,
         "landcover_profile":      profile,
         "terrain_classification": terrain_info,
+        "climate_features":       climate_features,
     }
 
 
@@ -1079,6 +1096,143 @@ def _compute_indices(obs: np.ndarray) -> Dict[str, float]:
     }
 
 
+def climate_suitability_score(crop_id: int, features: Optional[Dict]) -> float:
+    """
+    Score a crop using climate, elevation, and soil context.
+
+    Returns a value roughly in the range -30 to +30.
+    """
+    if not isinstance(features, dict) or not features:
+        return 0.0
+
+    score = 0.0
+    rainfall = features.get("rainfall_mm")
+    temp_avg = features.get("temp_avg")
+    temp_min = features.get("temp_min")
+    temp_max = features.get("temp_max")
+    elevation = features.get("elevation_m")
+    soil_type = str(features.get("soil_type") or "").lower()
+    agro_zone = str(features.get("agro_zone") or "").lower()
+
+    dryland_ids = {4, 5, 11, 12, 13, 14, 15, 16, 22, 25, 26, 27, 29, 31, 33, 34, 35, 59, 64, 95, 96, 100}
+    humid_ids = {1, 36, 37, 40, 43, 45, 46, 47, 48, 50, 52, 53, 54, 55, 56, 61, 62, 63, 82, 83, 84, 92, 93, 97, 98}
+    cool_ids = {2, 7, 8, 9, 10, 11, 12, 13, 14, 15, 18, 23, 44, 66, 67, 68, 70, 71, 72, 80, 81, 88, 94}
+    warm_ids = {1, 3, 4, 5, 19, 20, 21, 24, 28, 30, 31, 32, 38, 39, 43, 49, 55, 56, 57, 58, 60, 66, 68, 69, 73, 74, 75, 77, 82, 83, 84, 85, 89, 90, 91, 92, 93, 94, 96, 99, 100}
+
+    if rainfall is not None:
+        rainfall = float(rainfall)
+        if crop_id == 1:
+            score += 25 if rainfall >= 1000 else 15 if rainfall >= 800 else 5 if rainfall >= 600 else -20
+        elif crop_id == 2:
+            score += 20 if 500 <= rainfall <= 750 else 10 if 400 <= rainfall <= 900 else -15
+        elif crop_id == 5:
+            score += 20 if rainfall < 600 else 10 if rainfall < 800 else -10
+        elif crop_id == 28:
+            score += 18 if 500 <= rainfall <= 750 else 8 if rainfall < 1000 else -10
+        elif crop_id == 40:
+            score += 25 if rainfall >= 1500 else 10 if rainfall >= 1200 else -25
+        elif crop_id == 43:
+            score += 25 if rainfall >= 1200 else 15 if rainfall >= 1000 else -20
+        elif crop_id in {45, 46, 47, 48, 50, 52, 53, 54, 61, 62, 63}:
+            score += 15 if rainfall >= 1400 else 8 if rainfall >= 1000 else -10
+        elif crop_id in {96, 99, 100}:
+            score += 15 if rainfall <= 600 else 8 if rainfall <= 900 else -12
+        elif crop_id in dryland_ids:
+            score += 10 if rainfall <= 800 else -8
+
+    if temp_avg is not None:
+        temp_avg = float(temp_avg)
+        if crop_id == 1:
+            score += 10 if 22 <= temp_avg <= 32 else -5 if temp_avg < 18 else 0
+        elif crop_id == 2:
+            score += 15 if 15 <= temp_avg <= 25 else -20 if temp_avg > 30 else 0
+        elif crop_id in {45, 46}:
+            score += 20 if 15 <= temp_avg <= 25 else -15
+        elif crop_id == 83:
+            score += 12 if 20 <= temp_avg <= 32 else -8
+        elif crop_id == 88:
+            score += 15 if 5 <= temp_avg <= 20 else -12
+        elif crop_id in {53, 54, 52, 61, 62, 63}:
+            score += 15 if 15 <= temp_avg <= 28 else -10
+        elif crop_id in warm_ids:
+            score += 8 if 20 <= temp_avg <= 34 else -8 if temp_avg < 15 else 0
+        elif crop_id in cool_ids:
+            score += 8 if 10 <= temp_avg <= 25 else -10 if temp_avg > 30 else 0
+
+    if temp_min is not None and crop_id in {2, 45, 46, 88}:
+        temp_min = float(temp_min)
+        if crop_id == 2 and temp_min < 0:
+            score -= 8
+        elif crop_id in {45, 46} and temp_min < 10:
+            score -= 5
+        elif crop_id == 88 and temp_min < -5:
+            score -= 10
+
+    if temp_max is not None and crop_id in {1, 2, 45, 46, 88}:
+        temp_max = float(temp_max)
+        if crop_id == 2 and temp_max > 35:
+            score -= 8
+        elif crop_id in {45, 46} and temp_max > 32:
+            score -= 5
+        elif crop_id == 88 and temp_max > 35:
+            score -= 8
+
+    if elevation is not None:
+        elevation = float(elevation)
+        if crop_id == 45:
+            score += 20 if 600 <= elevation <= 2000 else 10 if elevation >= 300 else -15
+        elif crop_id == 46:
+            score += 20 if 600 <= elevation <= 1800 else -15
+        elif crop_id == 88:
+            score += 20 if elevation >= 1000 else -10
+        elif crop_id in {53, 54}:
+            score += 15 if 600 <= elevation <= 1500 else -10
+        elif crop_id in {52, 61, 62, 63}:
+            score += 10 if elevation >= 300 else -5
+        elif crop_id in {1, 2, 28, 43}:
+            score += 5 if elevation < 1000 else -5
+        elif crop_id in {96, 99, 100}:
+            score += 10 if elevation < 700 else 0
+
+    if soil_type:
+        if soil_type in {"black", "clay"}:
+            if crop_id in {1, 38, 43, 44, 66, 70, 71}:
+                score += 10
+        elif soil_type in {"red", "loamy"}:
+            if crop_id in {2, 5, 16, 17, 18, 19, 20, 21, 24, 28, 29, 30, 31, 32, 57, 58, 59, 60, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 82, 83, 84, 85, 89, 90}:
+                score += 8
+        elif soil_type == "sandy":
+            if crop_id in {5, 15, 25, 27, 31, 33, 34, 35, 59, 64, 96, 99, 100}:
+                score += 10
+        elif soil_type == "laterite":
+            if crop_id in {45, 46, 47, 48, 50, 52, 53, 54, 61, 62, 63, 97}:
+                score += 10
+
+    if agro_zone:
+        if agro_zone in {"tropical_wet", "humid_subtropical"}:
+            if crop_id in humid_ids:
+                score += 6
+        elif agro_zone == "sub_humid":
+            if crop_id in humid_ids or crop_id in {3, 28, 29, 30, 38, 43, 57, 82, 83, 84, 89, 90}:
+                score += 4
+        elif agro_zone in {"semi_arid", "arid"}:
+            if crop_id in dryland_ids:
+                score += 8
+            if crop_id in {1, 40, 43, 45, 46, 47, 48, 50, 52, 53, 54, 61, 62, 63, 83}:
+                score -= 8
+
+    if crop_id in {1, 43, 40, 83, 50, 52, 53, 54, 45, 46, 47, 48} and agro_zone in {"tropical_wet", "humid_subtropical"}:
+        score += 4
+    if crop_id in {5, 4, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 38, 39, 57, 58, 59, 60} and agro_zone in {"semi_arid", "arid"}:
+        score += 5
+
+    return float(max(-30.0, min(30.0, score)))
+
+
+def _climate_normalized_score(climate_score: float) -> float:
+    return float(np.clip(50.0 + climate_score, 0.0, 100.0))
+
+
 def _season_for_category(category: str) -> str:
     mapping = {
         "Cereal": "Kharif/Rabi",
@@ -1107,7 +1261,8 @@ def _regime_match_label(water_regime: str, favorable_water: float) -> str:
 
 def recommend_crops(percentages: Dict, top_n: int = 10,
                     current_month: int = None,
-                    previous_crop_id: int = None) -> Dict:
+                    previous_crop_id: int = None,
+                    climate_features: Optional[Dict] = None) -> Dict:
     """
     Backward-compatible API consumed by app.py and test scripts.
     Accepts land-cover percentages and returns ranked crop recommendations.
@@ -1182,6 +1337,7 @@ def recommend_crops(percentages: Dict, top_n: int = 10,
         top_k=top_k,
         current_month=current_month,
         previous_crop_id=previous_crop_id,
+        climate_features=climate_features,
     )
 
     ranked_crops = []
@@ -1190,6 +1346,7 @@ def recommend_crops(percentages: Dict, top_n: int = 10,
             "rank": i,
             "crop": rec["name"],
             "crop_id": rec["crop_id"],
+            "scientific_name": rec.get("scientific_name", ""),
             "category": rec["category"],
             "season": _season_for_category(rec["category"]),
             "score": rec["suitability_score"],
@@ -1200,6 +1357,16 @@ def recommend_crops(percentages: Dict, top_n: int = 10,
             "reasoning": rec.get("explanation", ""),
             "risk_tier": rec.get("risk_tier", "Worth Exploring"),
             "counterfactuals": rec.get("counterfactuals", []),
+            "growing_conditions": rec.get("growing_conditions", {}),
+            "fertilizers": rec.get("fertilizers", ""),
+            "best_regions": rec.get("best_regions", ""),
+            "key_practices": rec.get("key_practices", ""),
+            "favorable": rec.get("favorable", {}),
+            "evidence_table": rec.get("evidence_table", []),
+            "explanation_meta": rec.get("explanation_meta", {}),
+            "terrain_bonus_pts": rec.get("terrain_bonus_pts", 0.0),
+            "climate_bonus_pts": rec.get("climate_bonus_pts", 0.0),
+            "terrain_name": rec.get("terrain_name", ""),
         })
 
     return {
@@ -1211,5 +1378,6 @@ def recommend_crops(percentages: Dict, top_n: int = 10,
         "indices": indices,
         "flags": flags,
         "feature_explanations": feature_explanations,
+        "climate_features": climate_features,
         "ranked_crops": ranked_crops,
     }

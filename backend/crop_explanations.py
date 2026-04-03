@@ -222,6 +222,46 @@ def _terrain_sentence(terrain_name: Optional[str], crop_name: Optional[str], bon
     return f"Terrain type ({terrain_name}) is neutral for this crop."
 
 
+def _climate_sentence(climate_features: Optional[Dict], climate_score: Optional[float], crop_name: Optional[str]) -> str:
+    if not isinstance(climate_features, dict) or not climate_features:
+        return ""
+
+    rainfall = climate_features.get("rainfall_mm")
+    temp_avg = climate_features.get("temp_avg")
+    temp_min = climate_features.get("temp_min")
+    temp_max = climate_features.get("temp_max")
+    elevation = climate_features.get("elevation_m")
+    soil_type = climate_features.get("soil_type") or "unknown"
+    agro_zone = climate_features.get("agro_zone") or "unknown"
+
+    if climate_score is None:
+        fit_label = "neutral"
+    elif climate_score >= 15:
+        fit_label = "strong"
+    elif climate_score >= 5:
+        fit_label = "moderate"
+    else:
+        fit_label = "weak"
+
+    details = []
+    if rainfall is not None:
+        details.append(f"rainfall {round(float(rainfall), 1)} mm/year")
+    if temp_avg is not None:
+        details.append(f"mean temperature {round(float(temp_avg), 1)}°C")
+    if temp_min is not None and temp_max is not None:
+        details.append(f"seasonal range {round(float(temp_min), 1)}°C to {round(float(temp_max), 1)}°C")
+    if elevation is not None:
+        details.append(f"elevation {int(round(float(elevation)))} m")
+
+    climate_text = ", ".join(details) if details else "available climate signals"
+    crop_text = crop_name or "this crop"
+    score_text = f"{round(float(climate_score), 1)} pts" if climate_score is not None else "0 pts"
+
+    return (
+        f"Climate context: {climate_text}, soil type {soil_type}, and agro-zone {agro_zone} together indicate a {fit_label} climate fit for {crop_text}; the climate layer contributes {score_text} to the final ranking."
+    )
+
+
 def build_evidence_table(obs: np.ndarray, fav_list: list, contribs: List[Dict], score: float) -> List[Dict]:
     rows = []
     for contrib in contribs:
@@ -3471,7 +3511,9 @@ def build_explanation(crop_id: int, obs: np.ndarray, fav: list,
                       ci: tuple | None = None, risk: str | None = None,
                       terrain_name: str | None = None,
                       terrain_bonus: float | None = None,
-                      crop_name: str | None = None) -> str | None:
+                      crop_name: str | None = None,
+                      climate_features: Optional[Dict] = None,
+                      climate_score: float | None = None) -> str | None:
     builder = EXPLANATION_BUILDERS.get(crop_id)
     if builder is None:
         return None
@@ -3485,6 +3527,10 @@ def build_explanation(crop_id: int, obs: np.ndarray, fav: list,
     terrain_sentence = _terrain_sentence(terrain_name, crop_name, terrain_bonus)
     if terrain_sentence:
         parts.append(terrain_sentence)
+
+    climate_sentence = _climate_sentence(climate_features, climate_score, crop_name)
+    if climate_sentence:
+        parts.append(climate_sentence)
 
     ci_sentence = _ci_sentence(ci, risk)
     if ci_sentence:
@@ -3523,6 +3569,20 @@ def generate_explanation(result: Dict) -> Dict:
 
     status = result.get("status", "ok")
     ranked = result.get("ranked_crops", []) or []
+    climate_features = result.get("climate_features") if isinstance(result, dict) else None
+
+    climate_summary = ""
+    if isinstance(climate_features, dict) and climate_features:
+        climate_parts = []
+        if climate_features.get("rainfall_mm") is not None:
+            climate_parts.append(f"rainfall {round(float(climate_features['rainfall_mm']), 1)} mm/year")
+        if climate_features.get("temp_avg") is not None:
+            climate_parts.append(f"mean temperature {round(float(climate_features['temp_avg']), 1)}°C")
+        if climate_features.get("elevation_m") is not None:
+            climate_parts.append(f"elevation {int(round(float(climate_features['elevation_m'])))} m")
+        soil = climate_features.get("soil_type") or "unknown"
+        zone = climate_features.get("agro_zone") or "unknown"
+        climate_summary = f"Climate summary: {', '.join(climate_parts) if climate_parts else 'available climate inputs'}; soil type {soil}; agro-zone {zone}."
 
     if status == "halted":
         return {
@@ -3532,6 +3592,7 @@ def generate_explanation(result: Dict) -> Dict:
             "regime_explanation": f"Detected water regime: {result.get('water_regime', 'Unknown')}",
             "soil_explanation": f"Detected soil class: {result.get('soil_class', 'Unknown')}",
             "market_explanation": f"Detected market access class: {result.get('market_class', 'Unknown')}",
+            "environment_explanation": climate_summary or "Climate context unavailable.",
             "crop_explanations": [],
             "recommendations_summary": "No ranked crops available because the workflow was halted.",
         }
@@ -3577,6 +3638,7 @@ def generate_explanation(result: Dict) -> Dict:
             "score": score,
             "confidence": _confidence_band(score),
             "reasoning": reasoning,
+            "climate_context": climate_summary,
             "pros": pros,
             "cons": cons,
             "flags": flag_text,
@@ -3593,6 +3655,7 @@ def generate_explanation(result: Dict) -> Dict:
         "regime_explanation": f"Water regime identified as {result.get('water_regime', 'Unknown')}.",
         "soil_explanation": f"Soil class identified as {result.get('soil_class', 'Unknown')}.",
         "market_explanation": f"Market access class identified as {result.get('market_class', 'Unknown')}.",
+        "environment_explanation": climate_summary or "Climate context unavailable.",
         "crop_explanations": crop_explanations,
         "recommendations_summary": f"Top recommendations: {top_text}.",
     }

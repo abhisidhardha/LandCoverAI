@@ -28,6 +28,7 @@ import segmentation_models_pytorch as smp
 from flask import Flask, send_from_directory, jsonify, request, g
 from flask_cors import CORS
 
+from climate_fetcher import get_location_features
 from crop_recommender import recommend_crops
 from crop_explanations import generate_explanation
 
@@ -690,6 +691,7 @@ def _transform_crop_recommendations(crop_result: dict, landcover_pct: dict) -> d
             "evidence_table": item.get("evidence_table", []),
             "explanation_meta": item.get("explanation_meta", {}),
             "terrain_bonus_pts": item.get("terrain_bonus_pts", 0.0),
+            "climate_bonus_pts": item.get("climate_bonus_pts", 0.0),
             "terrain_name": item.get("terrain_name", ""),
         })
     
@@ -706,6 +708,7 @@ def _transform_crop_recommendations(crop_result: dict, landcover_pct: dict) -> d
         "market_class": crop_result.get("market_class"),
         "indices": crop_result.get("indices", {}),
         "flags": crop_result.get("flags", []),
+        "climate_features": crop_result.get("climate_features"),
     }
 
 
@@ -956,6 +959,7 @@ def create_app():
     def predict_image():
         payload   = request.get_json(force=True) or {}
         image_b64 = payload.get("image_base64")
+        previous_crop_id = payload.get("previous_crop_id")
 
         if not image_b64:
             return jsonify({"error": "image_base64 is required"}), 400
@@ -981,7 +985,11 @@ def create_app():
         # Add crop recommendations
         if result.get("landcover_percentages"):
             try:
-                crop_result = recommend_crops(result["landcover_percentages"], top_n=15)
+                crop_result = recommend_crops(
+                    result["landcover_percentages"],
+                    top_n=15,
+                    previous_crop_id=previous_crop_id,
+                )
                 transformed = _transform_crop_recommendations(crop_result, result["landcover_percentages"])
                 transformed["explanation_pack"] = generate_explanation(crop_result)
                 result["crop_recommendations"] = transformed
@@ -1006,6 +1014,7 @@ def create_app():
         lat      = payload.get("lat")
         lon      = payload.get("lon")
         radius_m = payload.get("radius_m")
+        previous_crop_id = payload.get("previous_crop_id")
         size     = int(payload.get("size", 512))
         
         if lat is None or lon is None or radius_m is None:
@@ -1026,18 +1035,33 @@ def create_app():
             logging.exception("Prediction failed")
             return jsonify({"error": f"Prediction failed: {e}"}), 500
 
+        climate_features = {}
+        try:
+            climate_features = get_location_features(lat, lon)
+        except Exception as e:
+            logging.warning("Climate feature lookup failed for %.4f, %.4f: %s", lat, lon, e)
+            climate_features = {}
+
         # Remove class_mask from result (internal use only)
         class_mask = result.pop("class_mask", None)
 
         # Add crop recommendations
         if result.get("landcover_percentages"):
             try:
-                crop_result = recommend_crops(result["landcover_percentages"], top_n=15)
+                crop_result = recommend_crops(
+                    result["landcover_percentages"],
+                    top_n=15,
+                    previous_crop_id=previous_crop_id,
+                    climate_features=climate_features,
+                )
                 transformed = _transform_crop_recommendations(crop_result, result["landcover_percentages"])
                 transformed["explanation_pack"] = generate_explanation(crop_result)
                 result["crop_recommendations"] = transformed
             except Exception as e:
                 logging.warning(f"Crop recommendation failed: {e}")
+
+        if climate_features:
+            result["climate_features"] = climate_features
 
         user = getattr(request, "current_user", None)
         if user:
@@ -1064,12 +1088,19 @@ def create_app():
         percentages = payload.get("percentages")
         top_n = int(payload.get("top_n", 10))
         include_explanations = payload.get("include_explanations", True)
+        climate_features = payload.get("climate_features")
+        previous_crop_id = payload.get("previous_crop_id")
         
         if not percentages:
             return jsonify({"error": "percentages object is required"}), 400
         
         try:
-            result = recommend_crops(percentages, top_n=top_n)
+            result = recommend_crops(
+                percentages,
+                top_n=top_n,
+                previous_crop_id=previous_crop_id,
+                climate_features=climate_features,
+            )
             
             # Add explanations if requested
             if include_explanations:
