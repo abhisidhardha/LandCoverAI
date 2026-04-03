@@ -22,7 +22,7 @@ Design principles
 
 from __future__ import annotations
 import numpy as np
-from typing import List, Dict
+from typing import List, Dict, Optional, Tuple
 
 # Column index constants (matching FEATURE_NAMES / ref column order)
 I_URBAN     = 0
@@ -42,6 +42,11 @@ def _pct(val: float) -> str:
     return f"{round(val, 1)}%"
 
 
+def _gap(obs_val: float, fav_val: float) -> float:
+    """Signed difference between observed and preferred percentage."""
+    return round(float(obs_val) - float(fav_val), 1)
+
+
 def _confidence_phrase(score: float) -> str:
     """Convert numeric score to a farmer-facing confidence phrase."""
     if score >= 80:
@@ -57,7 +62,7 @@ def _confidence_phrase(score: float) -> str:
 
 
 def _dominant_driver(contribs: List[Dict]) -> Dict:
-    """Return the single contribution with the highest absolute positive value."""
+    """Return the contribution with the highest positive SHAP value."""
     positive = [c for c in contribs if c["shap_value"] > 0]
     if not positive:
         return contribs[0]
@@ -65,11 +70,187 @@ def _dominant_driver(contribs: List[Dict]) -> Dict:
 
 
 def _worst_risk(contribs: List[Dict]) -> Dict | None:
-    """Return the most negative contribution, or None if no negatives exist."""
+    """Return the most negative contribution, or None if none exist."""
     negative = [c for c in contribs if c["shap_value"] < 0]
     if not negative:
         return None
     return min(negative, key=lambda c: c["shap_value"])
+
+
+FEATURE_DISPLAY = {
+    "pct_urban": ("Urban Land", "Low urban = more farm space"),
+    "pct_agriculture": ("Farmland", "Core growing area"),
+    "pct_barren": ("Barren Land", "Degraded or unproductive soil"),
+    "pct_forest": ("Forest Cover", "Shade, moisture, agroforestry"),
+    "pct_rangeland": ("Rangeland", "Open grazing land"),
+    "pct_water": ("Water Bodies", "Irrigation and moisture source"),
+}
+
+COUNTERFACTUAL_LABELS = {
+    "pct_urban": "urban area",
+    "pct_agriculture": "cultivated farmland",
+    "pct_barren": "barren land",
+    "pct_forest": "forest/shade cover",
+    "pct_rangeland": "rangeland",
+    "pct_water": "natural water coverage",
+}
+
+FEATURE_INDEX = {
+    "pct_urban": 0,
+    "pct_agriculture": 1,
+    "pct_barren": 2,
+    "pct_forest": 3,
+    "pct_rangeland": 4,
+    "pct_water": 5,
+}
+
+TERRAIN_CROP_NARRATIVES = {
+    ("Wetland / Paddy Zone", "Rice (Paddy)"): (
+        "The high water coverage directly enables paddy flooding, which is the clearest fit for rice."
+    ),
+    ("Arid Dryland", "Pearl Millet / Bajra"): (
+        "Dryland conditions are where pearl millet excels, so this terrain gives it a real practical edge."
+    ),
+    ("Forest / Agroforestry", "Coffee Arabica"): (
+        "Dense forest cover acts like a natural shade canopy, which matches arabica's shaded growing habit."
+    ),
+    ("Forest / Agroforestry", "Tea"): (
+        "Forest cover supports cooler, shaded microclimates that tea typically performs well in."
+    ),
+    ("Arid Dryland", "Jatropha (Biofuel)"): (
+        "Dry terrain gives jatropha an advantage because it tolerates stress better than most food crops."
+    ),
+    ("Wetland / Paddy Zone", "Jute"): (
+        "High moisture availability is a direct advantage for jute and its fibre development."
+    ),
+}
+
+
+def _feature_label(feature_name: str) -> str:
+    return FEATURE_DISPLAY.get(feature_name, (feature_name, ""))[0]
+
+
+def _feature_role(feature_name: str) -> str:
+    return FEATURE_DISPLAY.get(feature_name, (feature_name, ""))[1]
+
+
+def _gap_sentence(obs: np.ndarray, fav: list) -> str:
+    """Return a calibrated sentence for the largest observed-vs-ideal gap."""
+    labels = ["urban land", "farmland", "barren land", "forest cover", "rangeland", "water coverage"]
+    worst_gap = 0.0
+    worst_idx = -1
+    for i in range(6):
+        gap = fav[i] - obs[i]
+        if gap > worst_gap:
+            worst_gap = gap
+            worst_idx = i
+
+    if worst_idx == -1 or worst_gap < 5:
+        return ""
+
+    label = labels[worst_idx]
+    needed = round(worst_gap, 1)
+    observed = round(float(obs[worst_idx]), 1)
+    ideal = fav[worst_idx]
+
+    if needed >= 30:
+        return (
+            f"The most significant gap in your profile is {label}: you have {_pct(observed)} vs the {_pct(ideal)} this crop ideally needs — a {_pct(needed)} shortfall. Closing even half this gap would substantially lift the suitability score."
+        )
+    if needed >= 15:
+        return (
+            f"Your {label} ({_pct(observed)}) is {_pct(needed)} below this crop's ideal of {_pct(ideal)}. Targeted improvement here offers the highest return on effort."
+        )
+    return (
+        f"Your {label} ({_pct(observed)}) is modestly below the ideal ({_pct(ideal)}); a {_pct(needed)} increase would bring the profile closer to optimal."
+    )
+
+
+def _counterfactual_sentence(contribs: List[Dict], fav: list) -> str:
+    """Suggest the most useful land-cover improvement."""
+    labels = ["urban land", "cultivated farmland", "barren land", "forest cover", "rangeland", "water coverage"]
+    worst_gap = 0.0
+    worst_idx = -1
+    for i, c in enumerate(contribs):
+        gap = fav[i] - c["value"]
+        if gap > worst_gap:
+            worst_gap = gap
+            worst_idx = i
+
+    if worst_idx == -1 or worst_gap < 8:
+        return "The current land profile is near-optimal for this crop."
+
+    label = labels[worst_idx]
+    return (
+        f"Improvement path: if {label} could be increased by ~{round(worst_gap)}% (through land development, drainage works, or plantation establishment), the suitability score would improve meaningfully."
+    )
+
+
+def _ci_sentence(ci: Optional[Tuple], risk: Optional[str]) -> str:
+    if not ci:
+        return ""
+
+    lo, hi = ci
+    spread = hi - lo
+    risk = risk or "Moderate"
+    if risk == "Low" or spread < 10:
+        return (
+            f"Score reliability: HIGH — repeated analysis of similar areas gives {lo}–{hi}/100 (±{round(spread / 2, 1)} pts). You can plan and invest with confidence in this result."
+        )
+    if risk == "Moderate" or spread < 25:
+        return (
+            f"Score reliability: MODERATE ({lo}–{hi}/100). Small changes in field boundary or satellite-pass timing could shift the result by up to {round(spread / 2, 1)} pts. A ground-level soil check is advisable before large investments."
+        )
+    return (
+        f"⚠ Score reliability: LOW ({lo}–{hi}/100, spread {round(spread)} pts). The satellite image likely contains mixed pixels at field edges or cloud-affected zones. Ground-truth with a soil sample and EC test before committing resources."
+    )
+
+
+def _terrain_sentence(terrain_name: Optional[str], crop_name: Optional[str], bonus: Optional[float]) -> str:
+    if not terrain_name:
+        return ""
+
+    crop_name = crop_name or ""
+    key = (terrain_name, crop_name)
+    if key in TERRAIN_CROP_NARRATIVES:
+        return f"Terrain insight: {TERRAIN_CROP_NARRATIVES[key]}"
+
+    if bonus is not None and bonus >= 12:
+        return f"Terrain insight: the {terrain_name} archetype gives this crop a strong built-in advantage (+{round(bonus)} pts added to score)."
+    if bonus is not None and bonus >= 5:
+        return f"Terrain insight: {terrain_name} provides a moderate fit bonus (+{round(bonus)} pts) for this crop."
+    return f"Terrain type ({terrain_name}) is neutral for this crop."
+
+
+def build_evidence_table(obs: np.ndarray, fav_list: list, contribs: List[Dict], score: float) -> List[Dict]:
+    rows = []
+    for contrib in contribs:
+        feature_name = contrib["feature"]
+        idx = FEATURE_INDEX.get(feature_name)
+        if idx is None:
+            continue
+        label, role = FEATURE_DISPLAY.get(feature_name, (feature_name, ""))
+        obs_val = float(obs[idx])
+        fav_val = float(fav_list[idx])
+        gap = obs_val - fav_val
+        if gap >= 5:
+            status = "surplus"
+        elif gap >= -5:
+            status = "on-target"
+        else:
+            status = "deficit"
+        rows.append({
+            "feature": label,
+            "role": role,
+            "observed_pct": round(obs_val, 1),
+            "ideal_pct": round(fav_val, 1),
+            "gap": round(gap, 1),
+            "status": status,
+            "contribution": float(contrib["shap_value"]),
+            "score": round(float(score), 1),
+        })
+
+    return sorted(rows, key=lambda row: row["contribution"], reverse=True)
 
 
 # ---------------------------------------------------------------------------
@@ -82,69 +263,68 @@ def explain_rice(obs: np.ndarray, fav: list, score: float,
     water = obs[I_WATER]
     barren = obs[I_BARREN]
     urban  = obs[I_URBAN]
+    range_ = obs[I_RANGE]
+    agri_gap = _gap(agri, fav[I_AGRI])
+    water_gap = _gap(water, fav[I_WATER])
 
     parts = []
 
-    if agri >= 60:
+    if agri_gap >= 0:
         parts.append(
-            f"With {_pct(agri)} of the surrounding area as established farmland, "
-            f"the soil is already worked and suitable for paddy cultivation — "
-            f"this is the strongest signal in your land profile."
+            f"With {_pct(agri)} established farmland — meeting or exceeding rice's ideal of {_pct(fav[I_AGRI])} — the soil base is already worked, levelled, and historically suited to paddy."
+        )
+    elif agri >= 50:
+        parts.append(
+            f"Farmland at {_pct(agri)} is {_pct(abs(agri_gap))} below rice's ideal ({_pct(fav[I_AGRI])}), but still above the minimum viable threshold. Bund construction and levelling will be needed on non-farm patches."
         )
     elif agri >= 35:
         parts.append(
-            f"About {_pct(agri)} of your area is active farmland, providing a "
-            f"reasonable agricultural base for rice cultivation."
+            f"Active farmland covers only {_pct(agri)} — {_pct(abs(agri_gap))} short of the {_pct(fav[I_AGRI])} rice prefers. Soil preparation and bund development will add ₹6,000–9,000/acre to establishment cost."
         )
     else:
         parts.append(
-            f"Farmland covers only {_pct(agri)} of your area, which is lower than "
-            f"rice prefers (ideally above 50%). Soil preparation will be important."
+            f"Farmland at just {_pct(agri)} is a significant constraint — rice needs at least 50% of the surrounding area in active cultivation for viable water management. Prioritise bund and channel infrastructure."
         )
 
-    if water >= 15:
+    if water_gap >= 0:
         parts.append(
-            f"Natural water coverage at {_pct(water)} strongly favours rice — "
-            f"paddy needs standing water for 80% of its growth cycle, and natural "
-            f"moisture nearby significantly reduces your irrigation investment."
+            f"Natural water coverage at {_pct(water)} matches or exceeds what paddy needs — standing water for 80% of the growth cycle is achievable with minimal external irrigation investment."
+        )
+    elif water >= 15:
+        parts.append(
+            f"Water bodies cover {_pct(water)}, slightly below rice's ideal ({_pct(fav[I_WATER])}), but still very strong. Natural moisture significantly reduces irrigation cost and canal dependency."
         )
     elif water >= 5:
         parts.append(
-            f"Water bodies cover {_pct(water)} of the area, indicating natural "
-            f"moisture availability. Rice will need irrigation supplementation, "
-            f"but drainage infrastructure costs are moderate."
+            f"Water coverage at {_pct(water)} (ideal: {_pct(fav[I_WATER])}) indicates moderate natural moisture. Rice is viable but will need irrigation supplementation; budget for canal or borewell access."
         )
     else:
         parts.append(
-            f"Water coverage is low at {_pct(water)}. Rice is viable but will "
-            f"depend entirely on canal or groundwater irrigation, which increases "
-            f"input cost. Verify irrigation access before committing."
+            f"Water coverage is critically low at {_pct(water)} vs rice's ideal of {_pct(fav[I_WATER])}. Paddy here depends entirely on canal or groundwater irrigation — verify source capacity for 1,200–1,800 mm/season before committing."
         )
 
     if barren >= 25:
         parts.append(
-            f"A significant {_pct(barren)} of the area is barren or degraded land — "
-            f"this is a risk flag for rice. Barren patches often indicate poor drainage, "
-            f"salt accumulation, or hardpan soils. Get a soil salinity test near "
-            f"these patches before planting, especially at field edges."
+            f"⚠ Barren land at {_pct(barren)} is a serious risk flag. Barren patches in rice landscapes typically indicate salinity (EC >4 dS/m), hardpan, or chronic drainage failure. Get a soil EC and pH test before planting — saline soils reduce paddy yield by 20–50% and cannot be corrected by fertiliser alone."
         )
     elif barren >= 12:
         parts.append(
-            f"Barren land at {_pct(barren)} is a moderate concern. "
-            f"A soil check near dry patches is advisable before the Kharif season."
+            f"Barren land at {_pct(barren)} warrants a precautionary soil check. Dry patches in a wet landscape often indicate subsurface salinity or compaction — test EC near field edges before the Kharif season."
         )
 
     if urban >= 20:
         parts.append(
-            f"Urban area at {_pct(urban)} can restrict natural drainage during "
-            f"heavy monsoon — waterlogging beyond the paddy field's need is a risk. "
-            f"Check for low-lying collection points near the farm."
+            f"Urban coverage at {_pct(urban)} creates a monsoon drainage risk: impervious surfaces accelerate runoff into low-lying fields, causing waterlogging beyond paddy tolerance during heavy rainfall events. Identify runoff channels and install cross-drainage before planting."
+        )
+
+    if range_ >= 30:
+        parts.append(
+            f"Rangeland at {_pct(range_)} suggests open upland patches adjacent to the farm — these are unlikely to be convertible to paddy without significant water supply infrastructure."
         )
 
     verdict = _confidence_phrase(score)
     parts.append(
-        f"Overall, your land is {verdict} for rice (score {round(score)}/100). "
-        f"Best season: Kharif (June–November)."
+        f"Overall verdict: your land is {verdict} for rice (score {round(score)}/100). Best season: Kharif (June–November). Rabi rice is viable only with assured canal irrigation."
     )
 
     return " ".join(parts)
@@ -164,62 +344,61 @@ def explain_wheat(obs: np.ndarray, fav: list, score: float,
 
     parts = []
 
-    if agri >= 65:
+    agri_gap  = _gap(agri, fav[I_AGRI])
+    water_gap = _gap(water, fav[I_WATER])
+
+    if agri_gap >= 0:
         parts.append(
-            f"Your area has a strong agricultural base at {_pct(agri)}, "
-            f"which is the primary requirement for wheat — it needs well-managed "
-            f"soil with assured irrigation or residual moisture."
+            f"Your farmland at {_pct(agri)} meets wheat's ideal ({_pct(fav[I_AGRI])}). Wheat demands well-managed, structured soil with assured Rabi irrigation or residual monsoon moisture — your agricultural base delivers this."
         )
-    elif agri >= 40:
+    elif agri >= 50:
         parts.append(
-            f"Farmland covers {_pct(agri)} of the area — a moderate base for wheat. "
-            f"This is sufficient for Rabi wheat with proper soil preparation."
+            f"Farmland at {_pct(agri)} is {_pct(abs(agri_gap))} below wheat's ideal ({_pct(fav[I_AGRI])}), but comfortably above the viable threshold. Soil preparation cost is moderate."
+        )
+    elif agri >= 35:
+        parts.append(
+            f"Active farmland at {_pct(agri)} provides a moderate base. Wheat is a high-input crop and performs best on established cultivated land — you are {_pct(abs(agri_gap))} below ideal, so soil structure improvement (subsoiling, organic matter) is advisable."
         )
     else:
         parts.append(
-            f"Active farmland is limited at {_pct(agri)}, which is the main "
-            f"constraint for wheat here. Wheat is a high-input, high-management crop "
-            f"that performs best on established cultivated land."
+            f"Farmland at only {_pct(agri)} is the primary constraint for wheat — {_pct(abs(agri_gap))} below ideal. Wheat does not perform on unmanaged or degraded soil; invest in land preparation before sowing."
         )
 
     if range_ >= 20:
         parts.append(
-            f"Rangeland at {_pct(range_)} supports wheat suitability — "
-            f"semi-arid grassland areas with residual soil moisture are viable "
-            f"for dryland wheat with supplemental irrigation."
+            f"Rangeland at {_pct(range_)} adds some value — semi-arid grassland areas with residual soil moisture can support dryland wheat with supplemental irrigation as a secondary block."
         )
 
     if barren >= 20:
         parts.append(
-            f"Barren land at {_pct(barren)} is a clear risk for wheat. "
-            f"Wheat is significantly more salt-sensitive than rice or millets — "
-            f"if these dry patches carry saline soil, wheat yield will drop sharply. "
-            f"A soil EC test is essential before sowing."
+            f"⚠ Barren land at {_pct(barren)} is a serious salinity risk for wheat. Wheat is significantly more salt-sensitive than rice or millets — EC above 6 dS/m reduces yield by 50% and above 10 dS/m causes near-total crop failure. A soil EC test is essential before sowing."
         )
     elif barren >= 10:
         parts.append(
-            f"Barren coverage of {_pct(barren)} is a moderate salinity concern. "
-            f"Consider soil testing if barren patches are near the intended field."
+            f"Barren coverage at {_pct(barren)} is a moderate salinity concern. Test soil EC near dry patches — wheat's threshold is 6 dS/m."
         )
 
-    if water >= 10:
+    if water_gap < -5:
         parts.append(
-            f"Water coverage at {_pct(water)} is higher than wheat typically needs — "
-            f"wheat does not tolerate waterlogged conditions. "
-            f"Ensure adequate drainage, particularly for Rabi season sowing."
+            f"Water coverage at {_pct(water)} is {_pct(abs(water_gap))} above wheat's preference ({_pct(fav[I_WATER])}). Wheat does not tolerate waterlogged conditions — ensure raised beds or good tile drainage especially for Rabi sowing after a wet Kharif."
+        )
+    elif water >= 5:
+        parts.append(
+            f"Water body coverage at {_pct(water)} is manageable but ensure drainage channels are functional before sowing."
         )
 
     if forest >= 20:
         parts.append(
-            f"Forest cover at {_pct(forest)} is not compatible with wheat's need "
-            f"for full sun and open fields. Wheat cannot tolerate shade "
-            f"and forest soils are typically acidic, which reduces yield."
+            f"Forest cover at {_pct(forest)} is incompatible with wheat's full-sun requirement. Beyond shading, forest soils are typically pH 4.5–5.5 — too acidic for wheat (optimal pH 6.0–7.5). Lime application would be needed on forest-adjacent fields."
+        )
+    elif forest >= 10:
+        parts.append(
+            f"Forest share at {_pct(forest)} is a mild constraint — avoid forest-edge plots where pH may be below 6.0."
         )
 
     verdict = _confidence_phrase(score)
     parts.append(
-        f"Overall, your land is {verdict} for wheat (score {round(score)}/100). "
-        f"Best season: Rabi (October–April)."
+        f"Overall verdict: your land is {verdict} for wheat (score {round(score)}/100). Best season: Rabi (October–April). Key management: assured pre-sowing irrigation (paleva) and 2–3 subsequent irrigations at CRI, tillering, and grain-fill stages."
     )
 
     return " ".join(parts)
@@ -242,22 +421,16 @@ def explain_pearl_millet(obs: np.ndarray, fav: list, score: float,
 
     if barren >= 30:
         parts.append(
-            f"Barren land at {_pct(barren)} is actually a positive signal for "
-            f"pearl millet — unlike most cereals, bajra is specifically designed "
-            f"for dry, sandy, and degraded soils where other crops fail. "
-            f"This is where bajra earns its place."
+            f"Barren land at {_pct(barren)} is a major positive signal for pearl millet — unlike every other cereal, bajra is specifically engineered for dry, sandy, nutrient-poor soils where other crops fail. Its deep root system extracts moisture from 1.5m depth even when topsoil is bone dry."
         )
     elif barren >= 15:
         parts.append(
-            f"Barren land coverage of {_pct(barren)} suits pearl millet well. "
-            f"Bajra's deep root system can extract moisture from 1.5m depth in "
-            f"dry sandy soils — it thrives where rainfall is below 400mm."
+            f"Barren coverage at {_pct(barren)} suits bajra well. It thrives where rainfall is below 400mm annually and no other staple crop is economically viable."
         )
 
     if range_ >= 35:
         parts.append(
-            f"Rangeland at {_pct(range_)} aligns well with bajra's growing conditions. "
-            f"Open semi-arid grassland with light sandy soils is bajra's home territory."
+            f"Rangeland at {_pct(range_)} is bajra's home territory — open semi-arid grassland with light sandy soils. Conversion requires minimal soil preparation compared to any other cereal."
         )
     elif range_ >= 20:
         parts.append(
@@ -267,8 +440,7 @@ def explain_pearl_millet(obs: np.ndarray, fav: list, score: float,
 
     if agri >= 40:
         parts.append(
-            f"The {_pct(agri)} agricultural base further strengthens the case — "
-            f"existing farmland means better access, soil history, and lower preparation cost."
+            f"The {_pct(agri)} agricultural base strengthens the case further — existing farmland means better access, soil history, and lower weed management cost for bajra's first cycle."
         )
     elif agri >= 15:
         parts.append(
@@ -278,29 +450,22 @@ def explain_pearl_millet(obs: np.ndarray, fav: list, score: float,
 
     if water >= 8:
         parts.append(
-            f"Water body coverage at {_pct(water)} is notable — pearl millet "
-            f"does not benefit from wetland proximity and cannot survive waterlogging. "
-            f"Avoid low-lying waterlogged fields for bajra."
+            f"⚠ Water body coverage at {_pct(water)} is a risk for bajra. Pearl millet cannot survive waterlogging — even 48 hours of standing water at the seedling stage causes complete stand loss. Avoid low-lying field positions."
         )
 
     if forest >= 15:
         parts.append(
-            f"Forest cover at {_pct(forest)} is a mild constraint — bajra needs "
-            f"full sun and does not perform well in partially shaded or humid conditions."
+            f"Forest cover at {_pct(forest)} is a mild constraint — bajra needs full sun and low humidity to avoid downy mildew (the most economically damaging disease in pearl millet, reducing yield by 30–60%)."
         )
 
     if urban >= 30:
         parts.append(
-            f"High urban coverage ({_pct(urban)}) limits the land available for "
-            f"dryland bajra cultivation, though peri-urban fields can still be viable."
+            f"High urban coverage ({_pct(urban)}) reduces available dryland area, though peri-urban fields with sandy soils can still be viable for 65-day hybrid bajra varieties."
         )
 
     verdict = _confidence_phrase(score)
     parts.append(
-        f"Overall, your land is {verdict} for pearl millet (score {round(score)}/100). "
-        f"Best season: Kharif (July–October). "
-        f"Key advantage: if other crops are failing due to dry conditions here, "
-        f"bajra is the most likely to succeed."
+        f"Overall verdict: your land is {verdict} for pearl millet (score {round(score)}/100). Best season: Kharif (July–October). Key advantage: if other crops are failing due to dry conditions here, bajra is the most likely to succeed on this land type."
     )
 
     return " ".join(parts)
@@ -3302,11 +3467,34 @@ EXPLANATION_BUILDERS: dict = {
 
 
 def build_explanation(crop_id: int, obs: np.ndarray, fav: list,
-                      score: float, contribs: List[Dict]) -> str | None:
+                      score: float, contribs: List[Dict],
+                      ci: tuple | None = None, risk: str | None = None,
+                      terrain_name: str | None = None,
+                      terrain_bonus: float | None = None,
+                      crop_name: str | None = None) -> str | None:
     builder = EXPLANATION_BUILDERS.get(crop_id)
     if builder is None:
         return None
-    return builder(obs, fav, score, contribs)
+
+    parts = [builder(obs, fav, score, contribs)]
+
+    gap_sentence = _gap_sentence(obs, fav)
+    if gap_sentence:
+        parts.append(gap_sentence)
+
+    terrain_sentence = _terrain_sentence(terrain_name, crop_name, terrain_bonus)
+    if terrain_sentence:
+        parts.append(terrain_sentence)
+
+    ci_sentence = _ci_sentence(ci, risk)
+    if ci_sentence:
+        parts.append(ci_sentence)
+
+    counterfactual_sentence = _counterfactual_sentence(contribs, fav)
+    if counterfactual_sentence:
+        parts.append(counterfactual_sentence)
+
+    return " ".join(part.strip() for part in parts if part and str(part).strip())
 
 
 def _confidence_band(score: float) -> str:
@@ -3349,6 +3537,15 @@ def generate_explanation(result: Dict) -> Dict:
         }
 
     crop_explanations = []
+    flag_text = []
+    for flag in result.get("flags", []) or []:
+        if isinstance(flag, dict):
+            message = str(flag.get("message", "")).strip()
+            if message:
+                flag_text.append(message)
+        else:
+            flag_text.append(str(flag))
+
     for item in ranked:
         score = float(item.get("score", 0.0) or 0.0)
         reasoning = str(item.get("reasoning", "")).strip()
@@ -3382,6 +3579,7 @@ def generate_explanation(result: Dict) -> Dict:
             "reasoning": reasoning,
             "pros": pros,
             "cons": cons,
+            "flags": flag_text,
         })
 
     top_text = ", ".join(c.get("crop", "Unknown") for c in ranked[:3]) or "None"
@@ -3389,7 +3587,7 @@ def generate_explanation(result: Dict) -> Dict:
         "summary": f"Generated {len(ranked)} crop recommendations.",
         "land_analysis": (
             f"Terrain: {result.get('terrain_classification', {}).get('name', 'Mixed Terrain')}. "
-            f"Flags: {', '.join(result.get('flags', [])) if result.get('flags') else 'No critical warnings.'}"
+            f"Flags: {', '.join(flag_text) if flag_text else 'No critical warnings.'}"
         ),
         "indices_explanation": f"Indices snapshot: {result.get('indices', {})}",
         "regime_explanation": f"Water regime identified as {result.get('water_regime', 'Unknown')}.",

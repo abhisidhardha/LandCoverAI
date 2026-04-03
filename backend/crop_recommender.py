@@ -16,10 +16,12 @@ v3 Changes (April 2026):
 """
 
 import logging
+import hashlib
 import math
+from datetime import datetime
 import numpy as np
 from typing import List, Dict, Optional
-from crop_explanations import build_explanation
+from crop_explanations import build_explanation, build_evidence_table
 
 # ============================================================================
 # CROP DATABASE - 100 Crops (FAO/ICAR/CGIAR Suitability Percentages)
@@ -339,57 +341,226 @@ def _crop_profile_vector(crop_row: list) -> np.ndarray:
 
 def _compute_suitability(observed_pct: np.ndarray, crop_row: list) -> tuple:
     """
-    v3 Scoring Engine — Pure Rule-Based (no cosine similarity).
-
-    The crop data in CROP_DATA represents the inherent suitability (0-100 affinity)
-    of each land cover class for that specific crop, NOT a required mix of land covers.
-
-    Score = Base Affinity + Terrain Bonus
-
-    1. Base Affinity: Weighted sum of the observed land cover percentages multiplied
-       by their respective crop affinities.
-       Example: If land is 100% Agriculture, and Rice's agri affinity is 88, base score is 88.
-    2. Terrain Bonus: Up to +18 points based on matching terrain archetypes.
-   
-    Returns:
-        (score_0_to_100, contributions_list)
+    v4 FIXED Scoring Engine — Removes agri bias, enforces hard constraints,
+    adds positive bonuses, and uses similarity instead of dot-product.
     """
-    fav = _crop_profile_vector(crop_row)
-    obs = observed_pct.copy()
 
-    # obs array sums to ~100. We divide by 100 to get fractional presence.
-    # Base score automatically captures penalties: if a crop loves water (82)
-    # but the land is 100% barren (crop barren affinity 5), score is 5.
-    base_scores = (obs / 100.0) * fav
-    base_total = float(np.sum(base_scores))
+    obs = observed_pct.astype(float)
+    fav = _crop_profile_vector(crop_row).astype(float)
+    crop_id = crop_row[0]
 
-    _, archetype = classify_terrain(obs)
-   
-    terrain_bonus = 0.0
-    cat = crop_row[3]
-    cid = crop_row[0]
-   
-    # Category-level bonuses (e.g. Cereals in Irrigated Farmland)
-    if cat in archetype.get("category_bonuses", {}):
-        terrain_bonus += archetype["category_bonuses"][cat]
-       
-    # Crop-specific exceptional fit bonuses (e.g. Jatropha in Arid Dryland)
-    if cid in archetype.get("crop_id_bonuses", {}):
-        terrain_bonus += archetype["crop_id_bonuses"][cid]
+    # Normalize just in case
+    if obs.sum() > 0:
+        obs = obs / obs.sum() * 100.0
 
-    final_score = base_total + terrain_bonus
-    final_score = float(np.clip(final_score, 0.0, 100.0))
+    # ------------------------------------------------------------------
+    # 1. HARD CONSTRAINT FILTER (CRITICAL FIX)
+    # ------------------------------------------------------------------
+    # Water dependent crops: keep rice as soft-gated (penalize later),
+    # keep hard filter for other highly water-dependent crops.
+    if fav[5] >= 40 and obs[5] < 8:
+        if crop_id != 1:
+            return 0.0, []
 
-    # We want to show which land covers contributed most to the final score
+    # Forest crops (coffee, tea, spices) use a soft penalty later instead
+    # of a hard filter so they can still appear as low-score options.
+    if fav[3] >= 50 and obs[3] < 10:
+        pass
+
+    # Arid crops should not be in high water areas
+    if fav[2] >= 35 and obs[5] > 20:
+        return 0.0, []
+
+    # ------------------------------------------------------------------
+    # 2. SIMILARITY SCORE (REPLACES DOT PRODUCT)
+    # ------------------------------------------------------------------
+    diff = np.abs(obs - fav)
+
+    # Weighted difference (important features matter more)
+    weighted_diff = diff * WEIGHT_ARRAY
+
+    # Use quadratic mean for better differentiation.
+    similarity_score = 100.0 - np.sqrt(np.mean(weighted_diff ** 2))
+
+    # ------------------------------------------------------------------
+    # 3. AGRICULTURE DOMINANCE FIX
+    # ------------------------------------------------------------------
+    # Heavily dampen agriculture influence (it causes clustering).
+    agri_factor = (obs[1] * fav[1]) ** 0.45
+    similarity_score = 0.80 * similarity_score + 0.20 * agri_factor
+
+    # ------------------------------------------------------------------
+    # 4. POSITIVE BONUSES (CRITICAL — YOU WERE MISSING THIS)
+    # ------------------------------------------------------------------
+    bonus = 0.0
+
+    # Strong water match -> boost rice-type crops (reduced)
+    if obs[5] >= 12 and fav[5] >= 40:
+        bonus += 12
+
+    # Moderate water crops
+    elif obs[5] >= 8 and fav[5] >= 20:
+        bonus += 6
+
+    # Dryland match
+    if obs[2] >= 30 and fav[2] >= 35:
+        bonus += 8
+
+    # Forest match
+    if obs[3] >= 20 and fav[3] >= 40:
+        bonus += 8
+
+    # Rangeland match
+    if obs[4] >= 25 and fav[4] >= 30:
+        bonus += 5
+
+    # ------------------------------------------------------------------
+    # HIGH-AGRICULTURE TERRAIN BONUS
+    # ------------------------------------------------------------------
+    if obs[1] >= 70 and obs[5] < 5:
+        if fav[1] >= 80 and fav[5] <= 5:
+            bonus += 10
+        elif fav[1] >= 75 and fav[5] <= 5:
+            bonus += 6
+        elif fav[1] >= 70 and fav[5] <= 3:
+            bonus += 4
+
+    # ------------------------------------------------------------------
+    # 5. SIGNATURE CROP BOOSTS (IMPORTANT FOR RULE SYSTEM)
+    # ------------------------------------------------------------------
+    # Jute
+    if crop_id == 40 and obs[5] >= 12:
+        bonus += 10
+
+    # Taro (water crop)
+    if crop_id == 79 and obs[5] >= 15:
+        bonus += 10
+
+    # Bajra / arid crops
+    if crop_id == 5 and obs[2] >= 35:
+        bonus += 10
+
+    # ------------------------------------------------------------------
+    # FARMLAND SIGNATURE CROPS (HIGH AGRICULTURE)
+    # ------------------------------------------------------------------
+    if crop_id == 2 and obs[1] >= 70 and obs[5] < 8:
+        bonus += 12
+
+    if crop_id == 3 and obs[1] >= 65 and obs[5] < 10:
+        bonus += 10
+
+    if crop_id == 29 and obs[1] >= 70 and obs[5] < 8:
+        bonus += 9
+
+    if crop_id == 38 and obs[1] >= 70 and obs[5] < 5:
+        bonus += 9
+
+    if crop_id == 43 and obs[1] >= 75 and obs[5] < 10:
+        bonus += 8
+
+    if crop_id == 24 and obs[1] >= 70 and obs[5] < 8:
+        bonus += 8
+
+    # Rice - context-aware bonus tiers
+    if crop_id == 1:
+        if obs[5] >= 15:
+            bonus += 15
+        elif obs[5] >= 8:
+            bonus += 10
+        elif obs[1] >= 85 and obs[5] >= 2:
+            bonus += 12
+        elif obs[1] >= 80 and obs[5] >= 1.5:
+            bonus += 8
+
+    # ------------------------------------------------------------------
+    # 6. PENALTIES (LIGHT — NOT DOMINANT)
+    # ------------------------------------------------------------------
+    penalty = 0.0
+
+    # If water exists but crop doesn't like water
+    if obs[5] > 10 and fav[5] < 5:
+        penalty += (obs[5] - fav[5]) * 0.8
+
+    # Too barren for sensitive crops
+    if obs[2] > 30 and fav[2] < 10:
+        penalty += (obs[2] - fav[2]) * 0.5
+
+    # Heavy penalty for highly water-loving crops in low-water terrain
+    # (instead of hard filtering to zero).
+    if fav[5] >= 40 and obs[5] < 8:
+        water_deficit = fav[5] - obs[5]
+        if crop_id == 1:
+            # Rice can still be viable with irrigation in high-agriculture areas,
+            # so apply a much softer low-water penalty.
+            penalty += (water_deficit ** 1.1) * 0.05
+            if obs[1] < 75:
+                penalty += 8
+        else:
+            penalty += (water_deficit ** 1.5) * 0.3
+            if obs[1] < 75:
+                penalty += 15
+
+    # Agriculture over-matching penalty only when crop requirements do not
+    # fit dry/open farmland conditions.
+    if obs[1] >= 70:
+        if fav[5] >= 15 and obs[5] < 5:
+            penalty += (fav[5] - obs[5]) * 0.5
+        if fav[3] >= 30 and obs[3] < 5:
+            penalty += (fav[3] - obs[3]) * 0.4
+
+    # Heavy penalty for forest crops in non-forest terrain (soft filter).
+    if fav[3] >= 50 and obs[3] < 10:
+        forest_gap = fav[3] - obs[3]
+        penalty += forest_gap * 0.8
+
+    # Special rice penalty when visible water is below recommended level.
+    if crop_id == 1 and obs[5] < 8:
+        water_gap = 8 - obs[5]
+        penalty += water_gap ** 1.3
+
+    # ------------------------------------------------------------------
+    # 7. FINAL SCORE
+    # ------------------------------------------------------------------
+    raw_score = similarity_score + bonus - penalty
+
+    # Apply non-linear spreading to reduce clustering.
+    if raw_score > 50:
+        final_score = 50 + ((raw_score - 50) ** 0.85)
+    elif raw_score > 0:
+        final_score = raw_score ** 1.15
+    else:
+        final_score = 0.0
+
+    # Deterministic micro-variation to avoid identical ranks.
+    category = crop_row[3]
+    category_offsets = {
+        "Cereal": 0.5,
+        "Oilseed": 0.4,
+        "Pulse": 0.35,
+        "Fiber": 0.3,
+        "Sugar": 0.25,
+        "Vegetable": 0.2,
+        "Plantation": 0.15,
+        "Spice": 0.1,
+        "Fruit": 0.05,
+        "Other": 0.0,
+    }
+    id_offset = (crop_id * 0.1) % 0.5
+    final_score = final_score + category_offsets.get(category, 0.0) + id_offset
+
+    final_score = float(np.clip(final_score, 0, 100))
+
+    # ------------------------------------------------------------------
+    # 8. CONTRIBUTIONS (for explainability)
+    # ------------------------------------------------------------------
     contrib_list = []
     for i, fname in enumerate(FEATURE_NAMES):
         contrib_list.append({
-            "feature":    fname,
-            "value":      round(float(obs[i]), 1),
-            "shap_value": round(float(base_scores[i]), 3),
+            "feature": fname,
+            "value": round(float(obs[i]), 1),
+            "shap_value": round(float((100 - diff[i]) * WEIGHT_ARRAY[i]), 3),
         })
-   
-    # Sort contributions by highest positive impact
+
     contrib_list.sort(key=lambda c: c["shap_value"], reverse=True)
 
     return round(final_score, 1), contrib_list
@@ -405,7 +576,7 @@ def _compute_suitability_with_uncertainty(observed_pct: np.ndarray, crop_row: li
     simulated_scores = []
 
     for _ in range(num_simulations):
-        noise = np.random.normal(0, 5, size=observed_pct.shape)
+        noise = np.random.normal(0, 2, size=observed_pct.shape)
         noisy_obs = np.clip(observed_pct + noise, 0, 100)
         total = noisy_obs.sum()
         if total > 0:
@@ -426,58 +597,117 @@ def _compute_suitability_with_uncertainty(observed_pct: np.ndarray, crop_row: li
 # ============================================================================
 # v2: DIVERSITY-AWARE TOP-K SELECTION
 # ============================================================================
-def _select_diverse_top_k(all_results: list, top_k: int = 15) -> list:
+def _select_diverse_top_k(all_results: list, top_k: int = 15, observed_pct: np.ndarray = None) -> list:
     """
-    Select top-K crops with CATEGORY DIVERSITY enforcement.
+    v5 FIXED: Score-first selection with soft diversity.
 
-    Rules:
-      - Max 3 crops from any single category in the final selection
-      - Within each category, pick the top-scoring ones
-      - If we can't fill top_k with the cap, progressively relax
-
-    Also assigns risk_tier labels:
-      - "Best Fit"        : top 5 by score (high confidence)
-      - "Good Alternative": next 5 (solid but not perfect)
-      - "Worth Exploring" : last 5 (lower suitability but unique/interesting)
+    KEY CHANGE: Prioritize score over diversity. Apply only light category
+    balancing; do not apply profile-distance suppression.
     """
-    # Sort by score descending
     sorted_results = sorted(all_results, key=lambda r: r["suitability_score"], reverse=True)
+
+    viable_crops = [r for r in sorted_results if r["suitability_score"] >= 20.0]
+    if len(viable_crops) < top_k:
+        viable_crops = sorted_results[:max(top_k, len(sorted_results))]
 
     selected = []
     category_counts = {}
-    MAX_PER_CATEGORY = 3
+    MAX_PER_CATEGORY_INITIAL = 4
+    MAX_PER_CATEGORY_FINAL = 6
 
-    # First pass: enforce diversity
-    for rec in sorted_results:
+    # First pass: score-first with soft category balancing.
+    for rec in viable_crops:
         cat = rec["category"]
         count = category_counts.get(cat, 0)
-        if count < MAX_PER_CATEGORY:
+        if count < MAX_PER_CATEGORY_INITIAL:
             selected.append(rec)
             category_counts[cat] = count + 1
             if len(selected) >= top_k:
                 break
 
-    # If we couldn't fill the quota (shouldn't happen with 100 crops), relax
+    # Second pass: relax category balancing if needed.
     if len(selected) < top_k:
-        remaining = [r for r in sorted_results if r not in selected]
+        remaining = [r for r in viable_crops if r not in selected]
+        for rec in remaining:
+            cat = rec["category"]
+            count = category_counts.get(cat, 0)
+            if count < MAX_PER_CATEGORY_FINAL:
+                selected.append(rec)
+                category_counts[cat] = count + 1
+                if len(selected) >= top_k:
+                    break
+
+    # Third pass: fill remaining by score only.
+    if len(selected) < top_k:
+        remaining = [r for r in viable_crops if r not in selected]
         for rec in remaining:
             selected.append(rec)
             if len(selected) >= top_k:
                 break
 
-    # Re-sort final selection by score
     selected.sort(key=lambda r: r["suitability_score"], reverse=True)
 
-    # Assign risk tiers
-    for i, rec in enumerate(selected):
-        if i < 5:
+    # Score-based tiers.
+    for rec in selected:
+        score = rec["suitability_score"]
+        if score >= 75:
             rec["risk_tier"] = "Best Fit"
-        elif i < 10:
+        elif score >= 55:
             rec["risk_tier"] = "Good Alternative"
         else:
             rec["risk_tier"] = "Worth Exploring"
 
     return selected
+
+
+STRUCTURED_FLAGS = {
+    "urban_dominance": {
+        "condition": lambda obs: obs[0] >= 70,
+        "severity": "critical",
+        "message": "Urban land >70% - crop viability is very limited.",
+        "remediation": "Consider rooftop/container farming or periurban plots.",
+    },
+    "low_agriculture": {
+        "condition": lambda obs: obs[1] < 10,
+        "severity": "high",
+        "message": "Farmland share <10% - soil preparation cost will be high.",
+        "remediation": "Prioritize land clearing and organic matter addition before sowing.",
+    },
+    "high_barren": {
+        "condition": lambda obs: obs[2] >= 40,
+        "severity": "high",
+        "message": "Barren land >40% - salinity/hardpan risk is elevated.",
+        "remediation": "Test EC and pH. Consider gypsum application for saline soils.",
+    },
+    "no_water_source": {
+        "condition": lambda obs: obs[5] < 2 and obs[2] >= 20,
+        "severity": "moderate",
+        "message": "No visible water bodies in an arid landscape.",
+        "remediation": "Confirm groundwater depth; drip irrigation is recommended.",
+    },
+}
+
+
+def _build_structured_flags(observed_pct: np.ndarray) -> List[Dict]:
+    flags = []
+    for name, spec in STRUCTURED_FLAGS.items():
+        if spec["condition"](observed_pct):
+            flags.append({
+                "name": name,
+                "severity": spec["severity"],
+                "message": spec["message"],
+                "remediation": spec["remediation"],
+            })
+    return flags
+
+
+def _build_input_flag(name: str, severity: str, message: str, remediation: str) -> List[Dict]:
+    return [{
+        "name": name,
+        "severity": severity,
+        "message": message,
+        "remediation": remediation,
+    }]
 
 class CropRecommender:
     """
@@ -574,6 +804,7 @@ class CropRecommender:
 
         for crop in CROP_DATA:
             score, contribs, ci, risk = _compute_suitability_with_uncertainty(observed_pct, crop)
+            fav = _crop_profile_vector(crop)
 
             # ── Apply terrain archetype bonuses ──────────────────────────
             terrain_bonus = 0.0
@@ -582,13 +813,24 @@ class CropRecommender:
 
             cat_bonuses = terrain_arch.get("category_bonuses", {})
             if cat in cat_bonuses:
-                terrain_bonus += cat_bonuses[cat]
+                if terrain_name == "Irrigated Farmland":
+                    if fav[1] >= 70:
+                        terrain_bonus += cat_bonuses[cat] * 0.5
+                    else:
+                        terrain_bonus += cat_bonuses[cat] * 0.2
+                else:
+                    terrain_bonus += cat_bonuses[cat] * 0.5
 
             crop_bonuses = terrain_arch.get("crop_id_bonuses", {})
             if cid in crop_bonuses:
-                terrain_bonus += crop_bonuses[cid]
+                terrain_bonus += crop_bonuses[cid] * 0.4
 
             score = min(100.0, score + terrain_bonus)
+            ci_adjusted = (
+                round(min(100.0, float(ci[0]) + terrain_bonus), 1),
+                round(min(100.0, float(ci[1]) + terrain_bonus), 1),
+            )
+            evidence_table = build_evidence_table(observed_pct, [crop[4], crop[5], crop[6], crop[7], crop[8], crop[9]], contribs, score)
 
             rec = {
                 "crop_id":             cid,
@@ -596,8 +838,9 @@ class CropRecommender:
                 "scientific_name":     crop[2],
                 "category":            cat,
                 "suitability_score":   round(score, 1),
-                "confidence_interval": ci,
+                "confidence_interval": ci_adjusted,
                 "prediction_risk":     risk,
+                "terrain_bonus_pts":   round(float(terrain_bonus), 1),
                 "favorable": {
                     "urban":       crop[4],
                     "agriculture": crop[5],
@@ -606,6 +849,8 @@ class CropRecommender:
                     "rangeland":   crop[8],
                     "water":       crop[9],
                 },
+                "evidence_table": evidence_table,
+                "terrain_name": terrain_name,
             }
 
             # Merge enriched agricultural data
@@ -622,6 +867,10 @@ class CropRecommender:
             explanation = build_explanation(
                 crop_id=cid, obs=observed_pct, fav=fav_pct,
                 score=score, contribs=contribs,
+                ci=ci, risk=risk,
+                terrain_name=terrain_name,
+                terrain_bonus=terrain_bonus,
+                crop_name=crop[1],
             )
             if explanation:
                 rec["explanation"] = f"<strong>AI Land Analysis:</strong> {explanation}"
@@ -630,6 +879,17 @@ class CropRecommender:
 
             # Counterfactual guidance
             rec["counterfactuals"] = self.generate_counterfactuals(observed_pct, cid)
+            rec["explanation_meta"] = {
+                "engine_version": "v3.2",
+                "scoring_method": "weighted_affinity_with_graduated_penalties",
+                "terrain_detected": terrain_name,
+                "terrain_bonus_pts": round(float(terrain_bonus), 1),
+                "ci_low": ci_adjusted[0],
+                "ci_high": ci_adjusted[1],
+                "uncertainty_level": risk,
+                "timestamp_utc": datetime.utcnow().isoformat(),
+                "obs_hash": hashlib.md5(np.asarray(observed_pct, dtype=np.float64).tobytes()).hexdigest()[:8],
+            }
 
             all_results.append(rec)
             all_explanations[cid] = contribs
@@ -652,19 +912,51 @@ class CropRecommender:
                     if s_data:
                         rec["planting_window"] = s_data
                         rec["season_bonus"] = True
-                        rec["suitability_score"] = min(100.0, rec["suitability_score"] + 10.0)
+                        ci = rec.get("confidence_interval")
+                        if ci and len(ci) == 2:
+                            rec["confidence_interval"] = (
+                                round(min(100.0, float(ci[0]) + 5.0), 1),
+                                round(min(100.0, float(ci[1]) + 5.0), 1),
+                            )
+                        rec["suitability_score"] = min(100.0, rec["suitability_score"] + 5.0)
 
                 if previous_crop_id and previous_crop_id in ROTATION_RULES:
                     rules = ROTATION_RULES[previous_crop_id]
                     if cid in rules.get("recommended_next", []):
-                        rec["suitability_score"] = min(100.0, rec["suitability_score"] + 15.0)
+                        ci = rec.get("confidence_interval")
+                        if ci and len(ci) == 2:
+                            rec["confidence_interval"] = (
+                                round(min(100.0, float(ci[0]) + 8.0), 1),
+                                round(min(100.0, float(ci[1]) + 8.0), 1),
+                            )
+                        rec["suitability_score"] = min(100.0, rec["suitability_score"] + 8.0)
                         rec["rotation_benefit"] = rules.get("rationale", "")
                     elif cid in rules.get("avoid", []):
+                        ci = rec.get("confidence_interval")
+                        if ci and len(ci) == 2:
+                            rec["confidence_interval"] = (
+                                round(max(0.0, float(ci[0]) - 30.0), 1),
+                                round(max(0.0, float(ci[1]) - 30.0), 1),
+                            )
                         rec["suitability_score"] = max(0.0, rec["suitability_score"] - 30.0)
                         rec["rotation_warning"] = rules.get("rationale", "")
 
         # ── v2: DIVERSITY-AWARE SELECTION ────────────────────────────────
-        selected = _select_diverse_top_k(all_results, top_k=top_k)
+        selected = _select_diverse_top_k(all_results, top_k=top_k, observed_pct=observed_pct)
+
+        # Filter out very low-score crops from display output.
+        MIN_DISPLAY_SCORE = 25.0
+        selected = [r for r in selected if r["suitability_score"] >= MIN_DISPLAY_SCORE]
+
+        if len(selected) < 5:
+            selected = sorted(all_results, key=lambda r: r["suitability_score"], reverse=True)[:5]
+
+        # DEBUG: score distribution for tuning verification.
+        all_scores = sorted([r["suitability_score"] for r in all_results], reverse=True)
+        logging.info(f"Score distribution - Top 20: {all_scores[:20]}")
+        logging.info(f"Score distribution - Bottom 10: {all_scores[-10:]}")
+        logging.info(f"Crops above 50%%: {len([s for s in all_scores if s >= 50])}")
+        logging.info(f"Crops above 70%%: {len([s for s in all_scores if s >= 70])}")
 
         top_expl = {str(r["crop_id"]): all_explanations[r["crop_id"]] for r in selected}
 
@@ -825,7 +1117,9 @@ def recommend_crops(percentages: Dict, top_n: int = 10,
             "status": "error",
             "message": "percentages must be a dict",
             "ranked_crops": [],
-            "flags": ["Invalid input payload"],
+            "flags": _build_input_flag(
+                "invalid_input", "high", "percentages must be a dict", "Provide a dictionary of land-cover percentages."
+            ),
         }
 
     observed = _observed_from_percentages(percentages)
@@ -834,7 +1128,10 @@ def recommend_crops(percentages: Dict, top_n: int = 10,
             "status": "halted",
             "halt_message": "No valid land-cover percentages were provided.",
             "ranked_crops": [],
-            "flags": ["Invalid or empty land-cover profile"],
+            "flags": _build_input_flag(
+                "empty_profile", "high", "No valid land-cover percentages were provided.",
+                "Provide non-zero values for at least one land-cover class."
+            ),
         }
 
     top_k = max(1, int(top_n))
@@ -846,11 +1143,26 @@ def recommend_crops(percentages: Dict, top_n: int = 10,
 
     flags = []
     if float(observed[0]) >= 70.0:
-        flags.append("Urban dominance is very high; crop planning may be impractical.")
+        flags.append({
+            "name": "urban_dominance",
+            "severity": "critical",
+            "message": "Urban dominance is very high; crop planning may be impractical.",
+            "remediation": "Consider rooftop/container farming or periurban plots.",
+        })
     if float(observed[1]) < 10.0:
-        flags.append("Agriculture share is low; expect higher land-preparation cost.")
+        flags.append({
+            "name": "low_agriculture",
+            "severity": "high",
+            "message": "Agriculture share is low; expect higher land-preparation cost.",
+            "remediation": "Prioritize land clearing and organic matter addition before sowing.",
+        })
     if float(observed[2]) >= 40.0:
-        flags.append("High barren share detected; prioritize soil restoration and hardy crops.")
+        flags.append({
+            "name": "high_barren",
+            "severity": "high",
+            "message": "High barren share detected; prioritize soil restoration and hardy crops.",
+            "remediation": "Test EC and pH. Consider gypsum application for saline soils.",
+        })
 
     if float(observed[0]) >= 80.0:
         return {

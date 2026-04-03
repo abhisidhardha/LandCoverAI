@@ -63,6 +63,33 @@ MIN_AREA       = int(os.environ.get("MIN_AREA", "2000"))
 NMS_IOU_THRESH = float(os.environ.get("NMS_IOU_THRESH", "0.5"))
 MAX_DETECTIONS = int(os.environ.get("MAX_DETECTIONS", "25"))
 
+PREDICTION_LANDCOVER_COLUMNS = {
+    "urban_land": "pct_urban_land",
+    "agriculture": "pct_agriculture",
+    "rangeland": "pct_rangeland",
+    "forest": "pct_forest",
+    "water": "pct_water",
+    "barren": "pct_barren",
+    "unknown": "pct_unknown",
+}
+
+
+def _ensure_prediction_landcover_columns(cursor) -> None:
+    """
+    Add per-class landcover percentage columns to predictions if missing.
+    Safe to call repeatedly during startup.
+    """
+    for _class_name, column_name in PREDICTION_LANDCOVER_COLUMNS.items():
+        try:
+            cursor.execute(f"SHOW COLUMNS FROM predictions LIKE '{column_name}'")
+            exists = cursor.fetchone() is not None
+            if not exists:
+                cursor.execute(
+                    f"ALTER TABLE predictions ADD COLUMN {column_name} DECIMAL(6,2) NULL"
+                )
+        except Exception:
+            logging.exception("Failed ensuring predictions column %s", column_name)
+
 
 # ==============================================================================
 # 1. DATABASE & AUTHENTICATION MODULE 
@@ -119,10 +146,18 @@ def init_db(app):
                     original_img_path VARCHAR(512),
                     annotated_img_path VARCHAR(512),
                     results_json JSON,
+                    pct_urban_land DECIMAL(6,2) NULL,
+                    pct_agriculture DECIMAL(6,2) NULL,
+                    pct_rangeland DECIMAL(6,2) NULL,
+                    pct_forest DECIMAL(6,2) NULL,
+                    pct_water DECIMAL(6,2) NULL,
+                    pct_barren DECIMAL(6,2) NULL,
+                    pct_unknown DECIMAL(6,2) NULL,
                     created_at DATETIME NOT NULL,
                     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
                 )
             """)
+            _ensure_prediction_landcover_columns(cursor)
             try:
                 cursor.execute(
                     "CREATE INDEX idx_predictions_user_created ON predictions(user_id, created_at)"
@@ -255,13 +290,36 @@ def save_prediction_history(
     try:
         db = get_db()
         cursor = db.cursor()
+        landcover = result.get("landcover_percentages") if isinstance(result, dict) else {}
+        if not isinstance(landcover, dict):
+            landcover = {}
+
+        pct_values = []
+        for class_name in PREDICTION_LANDCOVER_COLUMNS:
+            value = landcover.get(class_name)
+            try:
+                pct_values.append(round(float(value), 2) if value is not None else None)
+            except Exception:
+                pct_values.append(None)
+
         cursor.execute(
-            "INSERT INTO predictions (user_id, original_img_path, annotated_img_path, results_json, created_at) VALUES (%s, %s, %s, %s, %s)",
+            "INSERT INTO predictions ("
+            "user_id, original_img_path, annotated_img_path, results_json, "
+            "pct_urban_land, pct_agriculture, pct_rangeland, pct_forest, pct_water, pct_barren, pct_unknown, "
+            "created_at"
+            ") VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (
                 user_id,
                 orig_img_path,
                 ann_img_path,
                 json.dumps(_compact_result_snapshot(result)),
+                pct_values[0],
+                pct_values[1],
+                pct_values[2],
+                pct_values[3],
+                pct_values[4],
+                pct_values[5],
+                pct_values[6],
                 datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'),
             ),
         )
@@ -629,6 +687,10 @@ def _transform_crop_recommendations(crop_result: dict, landcover_pct: dict) -> d
             "rotation_benefit": item.get("rotation_benefit", ""),
             "rotation_warning": item.get("rotation_warning", ""),
             "favorable": item.get("favorable", {}),
+            "evidence_table": item.get("evidence_table", []),
+            "explanation_meta": item.get("explanation_meta", {}),
+            "terrain_bonus_pts": item.get("terrain_bonus_pts", 0.0),
+            "terrain_name": item.get("terrain_name", ""),
         })
     
     # Detect terrain classification
@@ -831,7 +893,9 @@ def create_app():
         try:
             # Query lightweight columns first so MySQL doesn't sort huge JSON payloads.
             cursor.execute(
-                "SELECT id, original_img_path, annotated_img_path, created_at "
+                "SELECT id, original_img_path, annotated_img_path, "
+                "pct_urban_land, pct_agriculture, pct_rangeland, pct_forest, pct_water, pct_barren, pct_unknown, "
+                "created_at "
                 "FROM predictions WHERE user_id = %s ORDER BY created_at DESC LIMIT 100",
                 (user["id"],),
             )
@@ -853,12 +917,28 @@ def create_app():
                 created = row.get("created_at")
                 if hasattr(created, "isoformat"):
                     created = created.isoformat()
+
+                lc_from_cols = {
+                    "urban_land": float(row.get("pct_urban_land") or 0.0),
+                    "agriculture": float(row.get("pct_agriculture") or 0.0),
+                    "rangeland": float(row.get("pct_rangeland") or 0.0),
+                    "forest": float(row.get("pct_forest") or 0.0),
+                    "water": float(row.get("pct_water") or 0.0),
+                    "barren": float(row.get("pct_barren") or 0.0),
+                    "unknown": float(row.get("pct_unknown") or 0.0),
+                }
+
+                row_results = results_by_id.get(row.get("id"), {})
+                if not row_results.get("landcover_percentages"):
+                    row_results["landcover_percentages"] = lc_from_cols
+
                 out.append(
                     {
                         "id": row.get("id"),
                         "original_img_path": row.get("original_img_path"),
                         "annotated_img_path": row.get("annotated_img_path"),
-                        "results": results_by_id.get(row.get("id"), {}),
+                        "landcover_percentages": lc_from_cols,
+                        "results": row_results,
                         "created_at": created,
                     }
                 )

@@ -1,0 +1,10 @@
+{
+  "issues": [],
+  "warnings": [
+    "[agriculture_dominant] High profile redundancy detected in selected recommendations: 5 pairs under L1 distance 12.0.",
+    "[barren_dominant] High profile redundancy detected in selected recommendations: 4 pairs under L1 distance 12.0.",
+    "[forest_dominant] High profile redundancy detected in selected recommendations: 10 pairs under L1 distance 12.0.",
+    "[rangeland_dominant] High profile redundancy detected in selected recommendations: 6 pairs under L1 distance 12.0.",
+    "[agri_low_water] High profile redundancy detected in selected recommendations: 5 pairs under L1 distance 12.0."
+  ]
+}
