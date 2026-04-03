@@ -3308,3 +3308,93 @@ def build_explanation(crop_id: int, obs: np.ndarray, fav: list,
         return None
     return builder(obs, fav, score, contribs)
 
+
+def _confidence_band(score: float) -> str:
+    if score >= 80:
+        return "High"
+    if score >= 60:
+        return "Moderate"
+    return "Low"
+
+
+def generate_explanation(result: Dict) -> Dict:
+    """
+    Backward-compatible explanation pack for recommend_crops(...) output.
+    """
+    if not isinstance(result, dict):
+        return {
+            "summary": "No explanation available.",
+            "land_analysis": "Invalid recommendation payload.",
+            "indices_explanation": "Indices unavailable.",
+            "regime_explanation": "Water regime unavailable.",
+            "soil_explanation": "Soil class unavailable.",
+            "market_explanation": "Market class unavailable.",
+            "crop_explanations": [],
+            "recommendations_summary": "No crop recommendations were generated.",
+        }
+
+    status = result.get("status", "ok")
+    ranked = result.get("ranked_crops", []) or []
+
+    if status == "halted":
+        return {
+            "summary": "Recommendation halted due to land profile constraints.",
+            "land_analysis": result.get("halt_message", "Crop recommendation was halted."),
+            "indices_explanation": f"Computed indices: {result.get('indices', {})}",
+            "regime_explanation": f"Detected water regime: {result.get('water_regime', 'Unknown')}",
+            "soil_explanation": f"Detected soil class: {result.get('soil_class', 'Unknown')}",
+            "market_explanation": f"Detected market access class: {result.get('market_class', 'Unknown')}",
+            "crop_explanations": [],
+            "recommendations_summary": "No ranked crops available because the workflow was halted.",
+        }
+
+    crop_explanations = []
+    for item in ranked:
+        score = float(item.get("score", 0.0) or 0.0)
+        reasoning = str(item.get("reasoning", "")).strip()
+        if not reasoning:
+            reasoning = (
+                f"{item.get('crop', 'This crop')} is ranked based on compatibility with the "
+                f"current land-cover profile and terrain fit."
+            )
+
+        pros = []
+        if score >= 70:
+            pros.append("Strong overall suitability")
+        if str(item.get("regime_match", "")).lower() == "strong":
+            pros.append("Good water-regime alignment")
+        if item.get("risk_tier") == "Best Fit":
+            pros.append("Top-tier recommendation")
+
+        cons = []
+        if item.get("marginal"):
+            cons.append("Marginal suitability; needs careful management")
+        if str(item.get("regime_match", "")).lower() == "weak":
+            cons.append("Weak water-regime match")
+        if score < 50:
+            cons.append("Lower expected resilience/yield")
+
+        crop_explanations.append({
+            "rank": item.get("rank"),
+            "crop": item.get("crop"),
+            "score": score,
+            "confidence": _confidence_band(score),
+            "reasoning": reasoning,
+            "pros": pros,
+            "cons": cons,
+        })
+
+    top_text = ", ".join(c.get("crop", "Unknown") for c in ranked[:3]) or "None"
+    return {
+        "summary": f"Generated {len(ranked)} crop recommendations.",
+        "land_analysis": (
+            f"Terrain: {result.get('terrain_classification', {}).get('name', 'Mixed Terrain')}. "
+            f"Flags: {', '.join(result.get('flags', [])) if result.get('flags') else 'No critical warnings.'}"
+        ),
+        "indices_explanation": f"Indices snapshot: {result.get('indices', {})}",
+        "regime_explanation": f"Water regime identified as {result.get('water_regime', 'Unknown')}.",
+        "soil_explanation": f"Soil class identified as {result.get('soil_class', 'Unknown')}.",
+        "market_explanation": f"Market access class identified as {result.get('market_class', 'Unknown')}.",
+        "crop_explanations": crop_explanations,
+        "recommendations_summary": f"Top recommendations: {top_text}.",
+    }

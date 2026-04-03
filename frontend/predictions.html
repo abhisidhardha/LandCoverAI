@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title data-i18n="title_predictions">Past Predictions • LandCoverAI</title>
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="brand" href="/" data-i18n="brand">LandCoverAI</a>
+        <nav class="nav">
+          <a href="/" data-i18n="nav_home">Home</a>
+          <a href="/predict.html" data-i18n="nav_predict">Predict</a>
+          <a href="/predictions.html" class="active" data-i18n="nav_past_predictions">Past Predictions</a>
+          <a id="navLoginLink" href="/login.html" style="display:none;" data-i18n="nav_login">Login</a>
+          <a id="navRegisterLink" href="/register.html" style="display:none;" data-i18n="nav_register">Register</a>
+          <a id="logoutBtn" href="#" style="display:none;" data-i18n="nav_logout">Logout</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="container history-page">
+      <section class="history-head">
+        <div>
+          <h1 data-i18n="your_past_preds">Your Past Predictions</h1>
+          <p class="muted" id="historySubtitle" data-i18n="loading_history">Loading your analysis history...</p>
+        </div>
+        <a class="btn btn-primary" href="/predict.html" data-i18n="btn_new_pred">New Prediction</a>
+      </section>
+
+      <section id="historyGrid" class="history-grid">
+        <article class="history-card">
+          <p class="muted" data-i18n="fetching_preds">Fetching saved predictions...</p>
+        </article>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container">
+        <p data-i18n="footer_built">Built for precision agriculture & environmental monitoring. © 2026 LandCoverAI.</p>
+      </div>
+    </footer>
+
+    <script src="js/i18n_translations.js"></script>
+    <script src="js/i18n.js"></script>
+    <script src="js/common.js"></script>
+    <script src="js/history.js"></script>
+  </body>
+</html>

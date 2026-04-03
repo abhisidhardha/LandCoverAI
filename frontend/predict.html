@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Predict • LandCoverAI</title>
+    <title data-i18n="title_predict">Predict • LandCoverAI</title>
     <link rel="stylesheet" href="css/style.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
   </head>
@@ -11,11 +11,14 @@
     <!-- HEADER -->
     <header class="site-header">
       <div class="container header-inner">
-        <a class="brand" href="/">LandCoverAI</a>
+        <a class="brand" href="/" data-i18n="brand">LandCoverAI</a>
         <nav class="nav" id="topNav">
-          <a href="/">Home</a>
-          <a href="/predict.html" class="active">Predict</a>
-          <a href="#" id="logoutBtn">Logout</a>
+          <a href="/" data-i18n="nav_home">Home</a>
+          <a href="/predict.html" class="active" data-i18n="nav_predict">Predict</a>
+          <a href="/predictions.html" data-i18n="nav_past_predictions">Past Predictions</a>
+          <a id="navLoginLink" href="/login.html" style="display:none;" data-i18n="nav_login">Login</a>
+          <a id="navRegisterLink" href="/register.html" style="display:none;" data-i18n="nav_register">Register</a>
+          <a href="#" id="logoutBtn" style="display:none;" data-i18n="nav_logout">Logout</a>
         </nav>
       </div>
     </header>
@@ -26,8 +29,8 @@
       <!-- LOADING OVERLAY -->
       <div class="loading-overlay" id="loadingOverlay">
         <div class="loading-spinner"></div>
-        <h3>Analyzing Terrain...</h3>
-        <p>Running satellite data through the AI model.</p>
+        <h3 data-i18n="analyzing_terrain">Analyzing Terrain...</h3>
+        <p data-i18n="running_ai">Running satellite data through the AI model.</p>
       </div>
 
       <!-- ═══════════ SECTION 1: MAP + CONTROLS ═══════════ -->
@@ -41,58 +44,68 @@
           <!-- Controls Sidebar -->
           <div class="controls-sidebar">
             <div class="ctrl-header">
-              <span class="badge-step">Step 1</span>
-              <h2>Select Area</h2>
-              <p class="muted">Click the map to drop a pin, or enter coordinates manually.</p>
+              <span class="badge-step" data-i18n="step1">Step 1</span>
+              <h2 data-i18n="select_area">Select Area</h2>
+              <p class="muted" data-i18n="select_area_desc">Click the map to drop a pin, or enter coordinates manually.</p>
             </div>
 
             <div class="ctrl-body">
               <!-- Coordinate Display -->
               <div class="ctrl-coords">
                 <div class="coord-pill">
-                  <span class="coord-label">LAT</span>
+                  <span class="coord-label" data-i18n="label_lat">LAT</span>
                   <span class="coord-value" id="lat">—</span>
                 </div>
                 <div class="coord-pill">
-                  <span class="coord-label">LON</span>
+                  <span class="coord-label" data-i18n="label_lon">LON</span>
                   <span class="coord-value" id="lon">—</span>
                 </div>
               </div>
 
+              <!-- Previous Crop -->
+              <label class="ctrl-label" for="prevCropSelect" data-i18n="label_prev_crop">Previous Crop (Rotation Plan)</label>
+              <select id="prevCropSelect" class="input-field" style="margin-bottom: 1.5rem;">
+                <option value="" data-i18n="opt_none_fallow">None / Fallow</option>
+                <option value="1" data-i18n="opt_rice">Rice (Paddy)</option>
+                <option value="2" data-i18n="opt_wheat">Wheat</option>
+                <option value="24" data-i18n="opt_soybean">Soybean</option>
+                <option value="43" data-i18n="opt_sugarcane">Sugarcane</option>
+              </select>
+
               <!-- Range -->
-              <label class="ctrl-label" for="rangeSelect">Analysis Range</label>
+              <label class="ctrl-label" for="rangeSelect" data-i18n="label_range">Analysis Range</label>
               <select id="rangeSelect" class="input-field">
-                <option value="500">500m (Close Up)</option>
-                <option value="1000">1km (Medium)</option>
-                <option value="1500">1.5km (Wide)</option>
-                <option value="2000" selected>2.0km (Macro)</option>
+                <option value="500" data-i18n="opt_500m">500m (Close Up)</option>
+                <option value="1000" data-i18n="opt_1km">1km (Medium)</option>
+                <option value="1500" data-i18n="opt_1_5km">1.5km (Wide)</option>
+                <option value="2000" selected data-i18n="opt_2km">2.0km (Macro)</option>
               </select>
 
               <!-- Manual Entry -->
-              <label class="ctrl-label">Manual Go-To</label>
+              <label class="ctrl-label" data-i18n="label_manual">Manual Go-To</label>
               <div class="goto-row">
-                <input id="latInput" class="input-field" type="number" step="0.000001" placeholder="Lat" />
-                <input id="lonInput" class="input-field" type="number" step="0.000001" placeholder="Lon" />
-                <button id="gotoBtn" class="btn btn-outline btn-sm" type="button">Go</button>
+                <input id="latInput" class="input-field" type="number" step="0.000001" placeholder="Lat" data-i18n-placeholder="ph_lat" />
+                <input id="lonInput" class="input-field" type="number" step="0.000001" placeholder="Lon" data-i18n-placeholder="ph_lon" />
+                <button id="gotoBtn" class="btn btn-outline btn-sm" type="button" data-i18n="btn_go">Go</button>
               </div>
 
               <!-- Analyze -->
-              <button id="analyzeBtn" class="btn btn-primary btn-full" disabled>
-                ✨ Start Analysis
+              <button id="analyzeBtn" class="btn btn-primary btn-full" disabled data-i18n="btn_start_analysis">
+                Start Analysis
               </button>
 
               <!-- Upload -->
               <div class="upload-section">
-                <div class="upload-divider"><span>or upload your own image</span></div>
+                <div class="upload-divider"><span data-i18n="or_upload">or upload your own image</span></div>
                 <div class="upload-box" onclick="document.getElementById('uploadInput').click()">
                    <input id="uploadInput" type="file" accept="image/*" style="display:none;" />
-                   <span style="font-size: 1.3rem">📸</span>
+                   <span style="font-size: 1.3rem">IMG</span>
                    <div>
-                      <div style="font-weight: 600; font-size: 0.88rem">Browse files</div>
-                      <div class="muted" style="font-size: 0.78rem" id="uploadFileLabel">No file selected</div>
+                      <div style="font-weight: 600; font-size: 0.88rem" data-i18n="browse_files">Browse files</div>
+                      <div class="muted" style="font-size: 0.78rem" id="uploadFileLabel" data-i18n="no_file">No file selected</div>
                    </div>
                 </div>
-                <button id="uploadBtn" class="btn btn-secondary btn-full" disabled>Analyze Upload</button>
+                <button id="uploadBtn" class="btn btn-secondary btn-full" disabled data-i18n="btn_analyze_upload">Analyze Upload</button>
               </div>
             </div>
           </div>
@@ -102,47 +115,47 @@
       <!-- ═══════════ SECTION 2: RESULTS ═══════════ -->
       <section class="results-section" id="resultsSection">
         <div class="results-header">
-          <span class="badge-step">Step 2</span>
-          <h2>Analysis Results</h2>
-          <p class="muted">AI-identified land cover, breakdown, and crop recommendations.</p>
+          <span class="badge-step" data-i18n="step2">Step 2</span>
+          <h2 data-i18n="analysis_results">Analysis Results</h2>
+          <p class="muted" data-i18n="analysis_results_desc">AI-identified land cover, breakdown, and crop recommendations.</p>
         </div>
 
         <div class="results-grid">
           <!-- Satellite + Mask side by side -->
           <div class="result-card card-half">
-            <h3>🌍 Original Satellite View</h3>
+            <h3 data-i18n="original_sat">Original Satellite View</h3>
             <div class="image-preview">
               <img id="satImage" alt="" />
             </div>
           </div>
 
           <div class="result-card card-half">
-            <h3>🤖 AI Land Cover Mask</h3>
+            <h3 data-i18n="ai_mask">AI Land Cover Mask</h3>
             <div class="image-preview">
               <img id="predImage" alt="" />
             </div>
             <div class="result-actions">
-              <button id="downloadBtn" class="btn btn-outline btn-sm" disabled>
-                ⬇️ Download Annotated Image
+              <button id="downloadBtn" class="btn btn-outline btn-sm" disabled data-i18n="btn_download">
+                Download Annotated Image
               </button>
             </div>
           </div>
 
           <!-- Full-width breakdown -->
           <div class="result-card card-full">
-            <h3>📊 Identification Breakdown</h3>
+            <h3 data-i18n="breakdown">Identification Breakdown</h3>
             <div style="overflow-x: auto; border-radius: 8px; border: 1px solid var(--border);">
               <table class="table" id="detectionsTable">
                 <thead>
                   <tr>
-                    <th>Class</th>
-                    <th>Intelligence Confidence</th>
-                    <th>Area (Pixels)</th>
+                    <th data-i18n="th_class">Class</th>
+                    <th data-i18n="th_confidence">Intelligence Confidence</th>
+                    <th data-i18n="th_area">Area (Pixels)</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr>
-                    <td colspan="3" class="muted">Awaiting analysis...</td>
+                    <td colspan="3" class="muted" data-i18n="awaiting">Awaiting analysis...</td>
                   </tr>
                 </tbody>
               </table>
@@ -151,19 +164,28 @@
 
           <!-- Land Cover Profile -->
           <div class="result-card card-full">
-            <h3>🗺️ Land Cover Profile</h3>
-            <p class="muted" style="font-size: 0.9rem; margin-bottom: 1rem;">Distribution of land cover types in the analyzed area.</p>
+            <h3 data-i18n="landcover_profile">Land Cover Profile</h3>
+            <p class="muted" style="font-size: 0.9rem; margin-bottom: 1rem;" data-i18n="landcover_profile_desc">Distribution of land cover types in the analyzed area.</p>
             <div id="landcoverProfile" class="landcover-profile">
-              <p class="muted">Awaiting analysis...</p>
+              <p class="muted" data-i18n="awaiting">Awaiting analysis...</p>
+            </div>
+          </div>
+
+          <!-- Crop Overview (table + cards) -->
+          <div class="result-card card-full">
+            <h3>Crop Overview</h3>
+            <p class="muted" style="font-size: 0.9rem; margin-bottom: 1rem;">Quick list of all recommended crops with suitability percentages.</p>
+            <div id="cropOverview" class="crop-overview-wrap">
+              <p class="muted" data-i18n="awaiting">Awaiting analysis...</p>
             </div>
           </div>
 
           <!-- Crop Recommendations (full width) -->
           <div class="result-card card-full">
-            <h3>🌾 AI Crop Recommendations</h3>
-            <p class="muted" style="font-size: 0.9rem; margin-bottom: 1rem;">Top 10 crops suited for this land based on FAO/ICAR/CGIAR suitability data, with XAI explanations.</p>
+            <h3 data-i18n="crop_recs">AI Crop Recommendations</h3>
+            <p class="muted" style="font-size: 0.9rem; margin-bottom: 1rem;" data-i18n="crop_recs_desc">Top 10 crops suited for this land based on FAO/ICAR/CGIAR suitability data, with XAI explanations.</p>
             <div id="cropRecommendations" class="crop-recommendations-grid">
-              <p class="muted">Awaiting analysis...</p>
+              <p class="muted" data-i18n="awaiting">Awaiting analysis...</p>
             </div>
           </div>
         </div>
@@ -172,10 +194,12 @@
 
     <footer class="site-footer">
       <div class="container">
-        <p>Built for precision agriculture & environmental monitoring. © 2026 LandCoverAI.</p>
+        <p data-i18n="footer_built">Built for precision agriculture & environmental monitoring. © 2026 LandCoverAI.</p>
       </div>
     </footer>
 
+    <script src="js/i18n_translations.js"></script>
+    <script src="js/i18n.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <script src="js/common.js"></script>
     <script src="js/predict.js"></script>

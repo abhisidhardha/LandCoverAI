@@ -2,8 +2,11 @@ import os
 import io
 import math
 import base64
-import sqlite3
 import secrets
+import re
+import json
+import uuid
+import mysql.connector
 import logging
 import requests
 from datetime import datetime
@@ -25,7 +28,8 @@ import segmentation_models_pytorch as smp
 from flask import Flask, send_from_directory, jsonify, request, g
 from flask_cors import CORS
 
-from crop_recommender import generate_recommendations
+from crop_recommender import recommend_crops
+from crop_explanations import generate_explanation
 
 # ==============================================================================
 # CONFIGURATION & CONSTANTS
@@ -65,35 +69,71 @@ MAX_DETECTIONS = int(os.environ.get("MAX_DETECTIONS", "25"))
 # ==============================================================================
 def get_db():
     if "db" not in g:
-        from flask import current_app
-        db_path = current_app.config["DATABASE"]
-        os.makedirs(os.path.dirname(db_path), exist_ok=True)
-        conn = sqlite3.connect(db_path, check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        g.db = conn
+        g.db = mysql.connector.connect(
+            host=os.environ.get("DB_HOST", "localhost"),
+            user=os.environ.get("DB_USER", "root"),
+            password=os.environ.get("DB_PASSWORD", "admin"),
+            database=os.environ.get("DB_NAME", "landcover_db")
+        )
+    if not g.db.is_connected():
+        g.db.reconnect(attempts=3, delay=1)
     return g.db
 
 def init_db(app):
     with app.app_context():
-        db = get_db()
-        db.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                email TEXT NOT NULL UNIQUE,
-                password_hash TEXT NOT NULL,
-                created_at TEXT NOT NULL
+        try:
+            conn = mysql.connector.connect(
+                host=os.environ.get("DB_HOST", "localhost"),
+                user=os.environ.get("DB_USER", "root"),
+                password=os.environ.get("DB_PASSWORD", "admin")
             )
-        """)
-        db.execute("""
-            CREATE TABLE IF NOT EXISTS sessions (
-                token TEXT PRIMARY KEY,
-                user_id INTEGER NOT NULL,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY(user_id) REFERENCES users(id)
-            )
-        """)
-        db.commit()
+            cursor = conn.cursor()
+            db_name = os.environ.get("DB_NAME", "landcover_db")
+            cursor.execute(f"CREATE DATABASE IF NOT EXISTS {db_name}")
+            cursor.close()
+            conn.close()
+
+            db = get_db()
+            cursor = db.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    name VARCHAR(255) NOT NULL,
+                    email VARCHAR(255) NOT NULL UNIQUE,
+                    password_hash VARCHAR(255) NOT NULL,
+                    created_at DATETIME NOT NULL
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS sessions (
+                    token VARCHAR(255) PRIMARY KEY,
+                    user_id INT NOT NULL,
+                    created_at DATETIME NOT NULL,
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS predictions (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id INT NOT NULL,
+                    original_img_path VARCHAR(512),
+                    annotated_img_path VARCHAR(512),
+                    results_json JSON,
+                    created_at DATETIME NOT NULL,
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+            """)
+            try:
+                cursor.execute(
+                    "CREATE INDEX idx_predictions_user_created ON predictions(user_id, created_at)"
+                )
+            except Exception:
+                # Index may already exist.
+                pass
+            db.commit()
+            cursor.close()
+        except Exception as e:
+            logging.error(f"Failed to initialize MySQL Database: {e}")
 
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
@@ -106,25 +146,52 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 def create_session(user_id: int) -> str:
     token      = secrets.token_urlsafe(32)
-    created_at = datetime.utcnow().isoformat() + "Z"
+    created_at = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
     db = get_db()
-    db.execute(
-        "INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)",
+    cursor = db.cursor()
+    cursor.execute(
+        "INSERT INTO sessions (token, user_id, created_at) VALUES (%s, %s, %s)",
         (token, user_id, created_at),
     )
     db.commit()
+    cursor.close()
     return token
+
+def reset_auth_data_if_enabled():
+    """
+    Optional development helper to clear existing auth rows at startup.
+    Set RESET_AUTH_ON_START=true (or 1/yes) to force a clean auth state.
+    """
+    flag = str(os.environ.get("RESET_AUTH_ON_START", "false")).strip().lower()
+    if flag not in {"1", "true", "yes"}:
+        return
+
+    db = get_db()
+    cursor = db.cursor()
+    try:
+        cursor.execute("DELETE FROM sessions")
+        cursor.execute("DELETE FROM users")
+        db.commit()
+        logging.warning("RESET_AUTH_ON_START enabled: cleared users and sessions tables.")
+    except Exception:
+        db.rollback()
+        logging.exception("Failed clearing auth tables with RESET_AUTH_ON_START")
+    finally:
+        cursor.close()
 
 def get_user_by_token(token: str):
     if not token:
         return None
     db  = get_db()
-    row = db.execute(
+    cursor = db.cursor(dictionary=True)
+    cursor.execute(
         "SELECT u.id, u.name, u.email FROM users u "
-        "JOIN sessions s ON s.user_id = u.id WHERE s.token = ?",
+        "JOIN sessions s ON s.user_id = u.id WHERE s.token = %s",
         (token,),
-    ).fetchone()
-    return dict(row) if row else None
+    )
+    row = cursor.fetchone()
+    cursor.close()
+    return row
 
 def token_required(fn):
     def wrapper(*args, **kwargs):
@@ -137,6 +204,82 @@ def token_required(fn):
         return fn(*args, **kwargs)
     wrapper.__name__ = fn.__name__
     return wrapper
+
+
+def _compact_result_snapshot(result: dict) -> dict:
+    """
+    Keep only analytics fields needed for history listing.
+    Exclude large base64 blobs to keep DB rows small and fast.
+    """
+    if not isinstance(result, dict):
+        return {}
+
+    excluded = {
+        "annotated_image_base64",
+        "mask_image_base64",
+        "satellite_image_base64",
+        "class_mask",
+    }
+    return {k: v for k, v in result.items() if k not in excluded}
+
+
+def save_prediction_history(
+    *,
+    user_id: int,
+    original_bytes: Optional[bytes],
+    annotated_b64: Optional[str],
+    result: dict,
+) -> None:
+    history_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "static", "history"))
+    os.makedirs(history_dir, exist_ok=True)
+
+    unique_id = str(uuid.uuid4())
+    orig_img_path = None
+    ann_img_path = None
+
+    try:
+        if original_bytes:
+            orig_filename = f"orig_{unique_id}.jpg"
+            with open(os.path.join(history_dir, orig_filename), "wb") as f:
+                f.write(original_bytes)
+            orig_img_path = f"/static/history/{orig_filename}"
+
+        if annotated_b64:
+            ann_filename = f"ann_{unique_id}.jpg"
+            with open(os.path.join(history_dir, ann_filename), "wb") as f:
+                f.write(base64.b64decode(annotated_b64))
+            ann_img_path = f"/static/history/{ann_filename}"
+    except Exception as e:
+        logging.error("Failed to save history images: %s", e)
+
+    try:
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute(
+            "INSERT INTO predictions (user_id, original_img_path, annotated_img_path, results_json, created_at) VALUES (%s, %s, %s, %s, %s)",
+            (
+                user_id,
+                orig_img_path,
+                ann_img_path,
+                json.dumps(_compact_result_snapshot(result)),
+                datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'),
+            ),
+        )
+        db.commit()
+        cursor.close()
+    except Exception as e:
+        logging.error("Failed to log prediction to MySQL: %s", e)
+
+
+def _decode_results_json(value):
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except Exception:
+            return {}
+    return {}
 
 
 # ==============================================================================
@@ -443,6 +586,91 @@ def get_model():
     return _model_instance
 
 
+def _compute_landcover_percentages(class_mask: np.ndarray) -> Dict[str, float]:
+    """
+    Compute land-cover percentages from segmentation mask.
+    Returns dict with keys matching CLASS_NAMES.
+    """
+    total_pixels = class_mask.size
+    percentages = {}
+    for cid, name in enumerate(CLASS_NAMES):
+        count = np.sum(class_mask == cid)
+        percentages[name] = round((count / total_pixels) * 100, 2)
+    return percentages
+
+
+def _transform_crop_recommendations(crop_result: dict, landcover_pct: dict) -> dict:
+    """
+    Transform crop_recommender output to match frontend expectations.
+    """
+    # Map ranked_crops to recommendations with frontend-expected structure
+    recommendations = []
+    for item in crop_result.get("ranked_crops", []):
+        recommendations.append({
+            "name": item["crop"],
+            "category": item["category"],
+            "season": item["season"],
+            "suitability_score": item["score"],
+            "regime_match": item["regime_match"],
+            "risk_tier": "Best Fit" if item["rank"] <= 5 else "Good Alternative" if item["rank"] <= 10 else "Worth Exploring",
+            "crop_id": item.get("crop_id", item["rank"]),
+            "explanation": item.get("reasoning", ""),
+            "prediction_risk": item.get("prediction_risk"),
+            "confidence_interval": item.get("confidence_interval"),
+            "counterfactuals": item.get("counterfactuals", []),
+            "marginal": item.get("marginal", False),
+            "scientific_name": item.get("scientific_name", ""),
+            "growing_conditions": item.get("growing_conditions", {}),
+            "fertilizers": item.get("fertilizers", ""),
+            "best_regions": item.get("best_regions", ""),
+            "key_practices": item.get("key_practices", ""),
+            "season_bonus": item.get("season_bonus", False),
+            "planting_window": item.get("planting_window"),
+            "rotation_benefit": item.get("rotation_benefit", ""),
+            "rotation_warning": item.get("rotation_warning", ""),
+            "favorable": item.get("favorable", {}),
+        })
+    
+    # Detect terrain classification
+    terrain = _classify_terrain(landcover_pct, crop_result.get("water_regime"))
+    
+    return {
+        "recommendations": recommendations,
+        "explanations": crop_result.get("feature_explanations", {}),
+        "landcover_profile": landcover_pct,
+        "terrain_classification": terrain,
+        "water_regime": crop_result.get("water_regime"),
+        "soil_class": crop_result.get("soil_class"),
+        "market_class": crop_result.get("market_class"),
+        "indices": crop_result.get("indices", {}),
+        "flags": crop_result.get("flags", []),
+    }
+
+
+def _classify_terrain(landcover: dict, water_regime: str) -> dict:
+    """
+    Classify terrain type based on land cover and water regime.
+    """
+    agri = landcover.get("agriculture", 0)
+    water = landcover.get("water", 0)
+    forest = landcover.get("forest", 0)
+    rangeland = landcover.get("rangeland", 0)
+    barren = landcover.get("barren", 0)
+    
+    if agri > 40 and water_regime in ["SUB_HUMID", "HUMID"]:
+        return {"name": "Irrigated Farmland", "description": "High agricultural activity with good water availability"}
+    elif barren > 30 and water_regime == "ARID":
+        return {"name": "Arid Dryland", "description": "Low moisture, drought-resistant crops recommended"}
+    elif water > 20 and agri > 20:
+        return {"name": "Wetland / Paddy Zone", "description": "High water availability, suitable for rice and aquatic crops"}
+    elif forest > 30:
+        return {"name": "Forest / Agroforestry", "description": "Forest-dominant area, agroforestry recommended"}
+    elif rangeland > 30:
+        return {"name": "Rangeland / Pastoral", "description": "Grazing land with moderate cultivation potential"}
+    else:
+        return {"name": "Mixed Terrain", "description": "Diverse land cover with multiple cultivation options"}
+
+
 def _run_segmentation(bgr: np.ndarray) -> dict:
     """
     Core segmentation pipeline (no gate):
@@ -458,6 +686,7 @@ def _run_segmentation(bgr: np.ndarray) -> dict:
         max_detections = MAX_DETECTIONS,
     )
     result = engine.predict_bgr(bgr)
+    landcover_pct = _compute_landcover_percentages(result["class_mask"])
     return {
         "detections":             result["detections"],
         "annotated_image_base64": result["annotated_b64"],
@@ -466,6 +695,7 @@ def _run_segmentation(bgr: np.ndarray) -> dict:
         "image_height":           bgr.shape[0],
         "summary":                result.get("summary", {}),
         "class_mask":             result["class_mask"],
+        "landcover_percentages":  landcover_pct,
     }
 
 
@@ -511,9 +741,6 @@ def create_app():
     frontend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend"))
     app = Flask(__name__, static_folder=frontend_dir, static_url_path="")
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret")
-    app.config["DATABASE"]   = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "app.db")
-    )
     CORS(app, supports_credentials=True)
 
     @app.teardown_appcontext
@@ -523,6 +750,7 @@ def create_app():
             db.close()
 
     init_db(app)
+    reset_auth_data_if_enabled()
 
     # ── Auth routes ──────────────────────────────────────────────────────────
     @app.route("/api/register", methods=["POST"])
@@ -533,14 +761,23 @@ def create_app():
         password =  data.get("password") or ""
         if not name or not email or not password:
             return jsonify({"error": "Name, email, and password are required."}), 400
+        if len(name) < 2:
+            return jsonify({"error": "Name must be at least 2 characters."}), 400
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+            return jsonify({"error": "Invalid email format."}), 400
+        if len(password) < 8:
+            return jsonify({"error": "Password must be at least 8 characters."}), 400
         db = get_db()
+        cursor = db.cursor()
         try:
-            db.execute(
-                "INSERT INTO users (name, email, password_hash, created_at) VALUES (?, ?, ?, ?)",
-                (name, email, hash_password(password), datetime.utcnow().isoformat()+"Z"),
+            cursor.execute(
+                "INSERT INTO users (name, email, password_hash, created_at) VALUES (%s, %s, %s, %s)",
+                (name, email, hash_password(password), datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')),
             )
             db.commit()
-        except sqlite3.IntegrityError:
+            cursor.close()
+        except mysql.connector.errors.IntegrityError:
+            cursor.close()
             return jsonify({"error": "Email already registered."}), 400
         return jsonify({"message": "User created"}), 201
 
@@ -551,10 +788,15 @@ def create_app():
         password =  data.get("password") or ""
         if not email or not password:
             return jsonify({"error": "Email and password are required."}), 400
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+            return jsonify({"error": "Invalid email format."}), 400
         db  = get_db()
-        row = db.execute(
-            "SELECT id, name, email, password_hash FROM users WHERE email = ?", (email,)
-        ).fetchone()
+        cursor = db.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT id, name, email, password_hash FROM users WHERE email = %s", (email,)
+        )
+        row = cursor.fetchone()
+        cursor.close()
         if row is None or not verify_password(password, row["password_hash"]):
             return jsonify({"error": "Invalid email or password."}), 401
         token = create_session(row["id"])
@@ -568,8 +810,10 @@ def create_app():
         token = auth.split(" ", 1)[1] if " " in auth else None
         if token:
             db = get_db()
-            db.execute("DELETE FROM sessions WHERE token = ?", (token,))
+            cursor = db.cursor()
+            cursor.execute("DELETE FROM sessions WHERE token = %s", (token,))
             db.commit()
+            cursor.close()
         return jsonify({"message": "Logged out"})
 
     @app.route("/api/me", methods=["GET"])
@@ -577,11 +821,62 @@ def create_app():
     def me():
         return jsonify({"user": request.current_user})
 
+    @app.route("/api/predictions", methods=["GET"])
+    @token_required
+    def list_predictions():
+        user = request.current_user
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+
+        try:
+            # Query lightweight columns first so MySQL doesn't sort huge JSON payloads.
+            cursor.execute(
+                "SELECT id, original_img_path, annotated_img_path, created_at "
+                "FROM predictions WHERE user_id = %s ORDER BY created_at DESC LIMIT 100",
+                (user["id"],),
+            )
+            rows = cursor.fetchall()
+
+            ids = [row["id"] for row in rows if row.get("id") is not None]
+            results_by_id = {}
+            if ids:
+                placeholders = ",".join(["%s"] * len(ids))
+                cursor.execute(
+                    f"SELECT id, results_json FROM predictions WHERE id IN ({placeholders})",
+                    tuple(ids),
+                )
+                for item in cursor.fetchall():
+                    results_by_id[item["id"]] = _decode_results_json(item.get("results_json"))
+
+            out = []
+            for row in rows:
+                created = row.get("created_at")
+                if hasattr(created, "isoformat"):
+                    created = created.isoformat()
+                out.append(
+                    {
+                        "id": row.get("id"),
+                        "original_img_path": row.get("original_img_path"),
+                        "annotated_img_path": row.get("annotated_img_path"),
+                        "results": results_by_id.get(row.get("id"), {}),
+                        "created_at": created,
+                    }
+                )
+
+            return jsonify({"predictions": out})
+        except Exception:
+            logging.exception("Failed to fetch prediction history")
+            return jsonify({"error": "Could not load prediction history"}), 500
+        finally:
+            cursor.close()
+
     # ── Prediction routes ────────────────────────────────────────────────────
     @app.route("/api/predict", methods=["POST"])
+    @token_required
     def predict_image():
         payload   = request.get_json(force=True) or {}
         image_b64 = payload.get("image_base64")
+
         if not image_b64:
             return jsonify({"error": "image_base64 is required"}), 400
         try:
@@ -600,24 +895,39 @@ def create_app():
         if result.get("rejected"):
             return jsonify(result), 422
 
+        # Remove class_mask from result (internal use only)
+        class_mask = result.pop("class_mask", None)
+
         # Add crop recommendations
-        try:
-            class_mask = result.pop("class_mask", None)
-            if class_mask is not None:
-                rec = generate_recommendations(class_mask, top_k=10)
-                result["crop_recommendations"] = rec
-        except Exception as e:
-            logging.warning("Crop recommendation failed: %s", e)
+        if result.get("landcover_percentages"):
+            try:
+                crop_result = recommend_crops(result["landcover_percentages"], top_n=15)
+                transformed = _transform_crop_recommendations(crop_result, result["landcover_percentages"])
+                transformed["explanation_pack"] = generate_explanation(crop_result)
+                result["crop_recommendations"] = transformed
+            except Exception as e:
+                logging.warning(f"Crop recommendation failed: {e}")
+
+        user = getattr(request, "current_user", None)
+        if user:
+            save_prediction_history(
+                user_id=user["id"],
+                original_bytes=image_bytes,
+                annotated_b64=result.get("annotated_image_base64"),
+                result=result,
+            )
 
         return jsonify(result)
 
     @app.route("/api/predict/coordinates", methods=["POST"])
+    @token_required
     def predict_from_coordinates():
         payload  = request.get_json(force=True) or {}
         lat      = payload.get("lat")
         lon      = payload.get("lon")
         radius_m = payload.get("radius_m")
         size     = int(payload.get("size", 512))
+        
         if lat is None or lon is None or radius_m is None:
             return jsonify({"error": "lat, lon, and radius_m are required"}), 400
         try:
@@ -636,19 +946,60 @@ def create_app():
             logging.exception("Prediction failed")
             return jsonify({"error": f"Prediction failed: {e}"}), 500
 
+        # Remove class_mask from result (internal use only)
+        class_mask = result.pop("class_mask", None)
+
         # Add crop recommendations
-        try:
-            class_mask = result.pop("class_mask", None)
-            if class_mask is not None:
-                rec = generate_recommendations(class_mask, top_k=20)
-                result["crop_recommendations"] = rec
-        except Exception as e:
-            logging.warning("Crop recommendation failed: %s", e)
+        if result.get("landcover_percentages"):
+            try:
+                crop_result = recommend_crops(result["landcover_percentages"], top_n=15)
+                transformed = _transform_crop_recommendations(crop_result, result["landcover_percentages"])
+                transformed["explanation_pack"] = generate_explanation(crop_result)
+                result["crop_recommendations"] = transformed
+            except Exception as e:
+                logging.warning(f"Crop recommendation failed: {e}")
+
+        user = getattr(request, "current_user", None)
+        if user:
+            save_prediction_history(
+                user_id=user["id"],
+                original_bytes=tile_bytes,
+                annotated_b64=result.get("annotated_image_base64"),
+                result=result,
+            )
 
         return jsonify({
             "satellite_image_base64": base64.b64encode(tile_bytes).decode("ascii"),
             **result,
         })
+
+    @app.route("/api/recommend-crops", methods=["POST"])
+    @token_required
+    def recommend_crops_endpoint():
+        """
+        Crop recommendation endpoint.
+        Accepts land-cover percentages and returns ranked crop recommendations.
+        """
+        payload = request.get_json(force=True) or {}
+        percentages = payload.get("percentages")
+        top_n = int(payload.get("top_n", 10))
+        include_explanations = payload.get("include_explanations", True)
+        
+        if not percentages:
+            return jsonify({"error": "percentages object is required"}), 400
+        
+        try:
+            result = recommend_crops(percentages, top_n=top_n)
+            
+            # Add explanations if requested
+            if include_explanations:
+                explanations = generate_explanation(result)
+                result["explanations"] = explanations
+            
+            return jsonify(result)
+        except Exception as e:
+            logging.exception("Crop recommendation failed")
+            return jsonify({"error": f"Crop recommendation failed: {e}"}), 500
 
     # ── Warmup both models at startup ────────────────────────────────────────
     try:
@@ -663,14 +1014,14 @@ def create_app():
     except Exception as err:
         logging.warning("Satellite gate warmup failed: %s", err)
 
-    try:
-        from crop_recommender import get_recommender
-        get_recommender()
-        logging.info("Crop recommender warmup completed")
-    except Exception as err:
-        logging.warning("Crop recommender warmup failed: %s", err)
+
 
     # ── Static file serving ──────────────────────────────────────────────────
+    @app.route("/static/<path:filename>")
+    def serve_extra_static(filename):
+        extra_static = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "static"))
+        return send_from_directory(extra_static, filename)
+
     @app.route("/", defaults={"path": ""})
     @app.route("/<path:path>")
     def serve(path):

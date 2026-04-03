@@ -3,81 +3,87 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>LandCoverAI • AI for Agriculture</title>
+    <title data-i18n="title_index">LandCoverAI • AI for Agriculture</title>
     <link rel="stylesheet" href="css/style.css" />
+    <style>
+      .index-page h1 {
+        color: #ffffff !important;
+      }
+      .index-btn-outline:hover {
+        background: rgba(0, 0, 0, 0.6) !important;
+        border-color: #ffffff !important;
+        color: #ffffff !important;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.3) !important;
+      }
+    </style>
   </head>
-  <body>
-    <header class="site-header">
+  <body class="index-page">
+    <video autoplay muted loop playsinline class="video-bg">
+      <source src="/satellite.mp4" type="video/mp4">
+    </video>
+    <div class="video-overlay"></div>
+
+    <header class="site-header index-header">
       <div class="container header-inner">
-        <a class="brand" href="/">LandCoverAI</a>
+        <a class="brand" href="/" style="color: white; text-shadow: 0 2px 10px rgba(0,0,0,0.5);" data-i18n="brand">LandCoverAI</a>
         <nav class="nav">
-          <a href="/predict.html">Open Map</a>
-          <a href="/login.html">Login</a>
-          <a href="/register.html">Sign Up</a>
+          <a href="/predict.html" style="color: rgba(255,255,255,0.9);" data-i18n="nav_open_map">Open Map</a>
+          <a id="navLoginLink" href="/login.html" style="color: rgba(255,255,255,0.9);" data-i18n="nav_login">Login</a>
+          <a id="navRegisterLink" href="/register.html" class="nav-btn" data-i18n="nav_signup">Sign Up</a>
+          <a id="logoutBtn" href="#" style="display:none;color: rgba(255,255,255,0.9);" data-i18n="nav_logout">Logout</a>
         </nav>
       </div>
     </header>
 
-    <main class="container main">
-      <section class="hero">
-        <div class="hero-content">
-          <span style="display:inline-block; padding: 0.25rem 0.75rem; background: var(--primary-light); color: var(--primary); font-weight: 700; border-radius: 999px; margin-bottom: 1rem;">SMART FARMING</span>
-          <h1 style="font-size: clamp(2.5rem, 5vw, 4rem); letter-spacing: -0.03em;">Know your land.<br/>Grow your yield.</h1>
-          <p style="font-size: 1.15rem; color: var(--text-muted); line-height: 1.6;">
-            Instantly map out crops, water sources, and barren patches. Drop a pin anywhere in the world and let our Agricultural AI analyze the terrain from space.
+    <main class="container main" style="position: relative; z-index: 2; color: white; display:flex; flex-direction:column; justify-content:center; min-height: 85vh;">
+      <section class="hero index-hero">
+        <div class="hero-content" style="max-width: 800px; text-align: center; margin: 0 auto;">
+          <h1 style="font-size: clamp(3rem, 6vw, 5rem); letter-spacing: -0.04em; font-weight: 800; line-height: 1.1; margin-bottom: 1.5rem; color: #ffffff;"><span data-i18n="hero_title_1">Know your land.</span><br/><span style="background: linear-gradient(120deg, #A8FF78, #78FFD6); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;" data-i18n="hero_title_2">Grow your yield.</span></h1>
+          <p style="font-size: 1.25rem; color: rgba(255, 255, 255, 0.9); line-height: 1.6; margin-bottom: 2.5rem; text-shadow: 0 2px 10px rgba(0,0,0,0.5); max-width: 650px; margin-inline: auto;" data-i18n="hero_desc">
+            Instantly map out crops, secure water sources, and identify barren patches. Drop a pin anywhere in the world and let our advanced Agricultural AI segment the terrain straight from orbit.
           </p>
-          <div class="hero-actions" style="margin-top: 2rem;">
-            <a class="btn btn-primary btn-large" href="/predict.html">Launch Satellite Map</a>
-            <a class="btn btn-outline btn-large" href="/register.html">Create a Free Account</a>
-          </div>
-        </div>
-        <div class="hero-image">
-          <img
-            src="https://images.unsplash.com/photo-1595841696650-62181bc89f64?auto=format&fit=crop&w=1200&q=80"
-            alt="Drone hovering over lush farming fields"
-            style="border-radius: 24px; box-shadow: var(--shadow-hover);"
-          />
-        </div>
-      </section>
-
-      <section class="features" style="margin-top: 4rem;">
-        <h2 style="font-size: 2.2rem;">Built for the Field</h2>
-        <div class="cards" style="margin-top: 2rem;">
-          <div class="card" style="text-align: center; padding: 2.5rem 2rem;">
-            <div style="font-size: 3rem; margin-bottom: 1rem;">🛰️</div>
-            <h3>High-Def Intel</h3>
-            <p class="muted">
-              We pull real-time ArcGIS satellite imagery right to your screen. Get a bird’s-eye view of your entire acreage instantly.
-            </p>
-          </div>
-          <div class="card" style="text-align: center; padding: 2.5rem 2rem;">
-             <div style="font-size: 3rem; margin-bottom: 1rem;">🤖</div>
-            <h3>Instant Analysis</h3>
-            <p class="muted">
-               Our AI instantly highlights water bodies, fertile agriculture, and forests. Spot dry areas before they hurt your crop.
-            </p>
-          </div>
-          <div class="card" style="text-align: center; padding: 2.5rem 2rem;">
-            <div style="font-size: 3rem; margin-bottom: 1rem;">🔒</div>
-            <h3>Private & Secure</h3>
-            <p class="muted">Your farm data stays yours. Create a secure account to save your sessions and revisit your maps later.</p>
+          <div class="hero-actions" style="justify-content: center;">
+            <a class="btn btn-large index-btn-primary" href="/predict.html" style="font-size: 1.1rem; padding: 1rem 2.5rem;" data-i18n="btn_launch_map">Launch Satellite Map</a>
+            <a class="btn btn-outline btn-large index-btn-outline" href="/register.html" style="font-size: 1.1rem; padding: 1rem 2.5rem;" data-i18n="btn_create_account">Create Free Account</a>
           </div>
         </div>
       </section>
 
-      <section class="cta" style="margin-top: 4rem; background: var(--surface); padding: 4rem 2rem; border-radius: var(--radius); border: 1px solid var(--border); box-shadow: var(--shadow-sm);">
-        <h2 style="font-size: 2.5rem;">Ready to survey your fields?</h2>
-        <p class="muted" style="margin-bottom: 2rem;">Takes less than 30 seconds to get your first AI report.</p>
-        <a class="btn btn-primary btn-large" href="/predict.html">Open the map</a>
+      <section class="features glass-features" style="margin-top: 6rem;">
+        <div class="cards">
+          <div class="glass-card">
+            <div style="font-size: 1.1rem; margin-bottom: 1rem; font-weight: 700; letter-spacing: 0.08em;">SAT</div>
+            <h3 style="color: white; font-size: 1.3rem;" data-i18n="card_highdef_title">High-Def Intel</h3>
+            <p style="color: rgba(255,255,255,0.85); font-size: 0.95rem; line-height: 1.5;" data-i18n="card_highdef_desc">
+              We pipe real-time ArcGIS satellite imagery right to your screen. Get a true bird’s-eye view of your entire acreage instantly.
+            </p>
+          </div>
+          <div class="glass-card">
+             <div style="font-size: 1.1rem; margin-bottom: 1rem; font-weight: 700; letter-spacing: 0.08em;">AI</div>
+            <h3 style="color: white; font-size: 1.3rem;" data-i18n="card_insights_title">Deep Insights</h3>
+            <p style="color: rgba(255,255,255,0.85); font-size: 0.95rem; line-height: 1.5;" data-i18n="card_insights_desc">
+               Our Monte-Carlo backed AI engine predicts favorable crops with 90% confidence matrices using historic FAO mapping data.
+            </p>
+          </div>
+          <div class="glass-card">
+            <div style="font-size: 1.1rem; margin-bottom: 1rem; font-weight: 700; letter-spacing: 0.08em;">SEC</div>
+            <h3 style="color: white; font-size: 1.3rem;" data-i18n="card_secure_title">Private & Secure</h3>
+            <p style="color: rgba(255,255,255,0.85); font-size: 0.95rem; line-height: 1.5;" data-i18n="card_secure_desc">
+               Your territorial farm data stays completely yours. Monitor your expansion securely without telemetry feeding into public models.
+            </p>
+          </div>
+        </div>
       </section>
     </main>
 
-    <footer class="site-footer">
+    <footer class="site-footer" style="position: relative; z-index: 2; padding: 2rem 0; background: rgba(0,0,0,0.3); backdrop-filter: blur(10px); border-top: 1px solid rgba(255,255,255,0.1); text-align: center; color: rgba(255,255,255,0.6);">
       <div class="container">
-        <p>© 2026 LandCoverAI. Empowering precision agriculture.</p>
+        <p style="margin:0; font-size:0.9rem;" data-i18n="footer_main">© 2026 LandCoverAI. Empowering precision agriculture globally.</p>
       </div>
     </footer>
 
+    <script src="js/i18n_translations.js"></script>
+    <script src="js/i18n.js"></script>
     <script src="js/common.js"></script>
   </body>
 </html>

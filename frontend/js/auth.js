@@ -1,3 +1,43 @@
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function validatePayload(form, payload) {
+  if (form.id === 'registerForm') {
+    if (!payload.name || payload.name.length < 2) {
+      showToast(t('name_min'), 'error');
+      return false;
+    }
+    if (!isValidEmail(payload.email || '')) {
+      showToast(t('email_invalid'), 'error');
+      return false;
+    }
+    if (!payload.password || payload.password.length < 8) {
+      showToast(t('pw_min'), 'error');
+      return false;
+    }
+    if (payload.password !== payload.confirm) {
+      showToast(t('pw_mismatch'), 'error');
+      return false;
+    }
+    delete payload.confirm;
+    return true;
+  }
+
+  if (form.id === 'loginForm') {
+    if (!isValidEmail(payload.email || '')) {
+      showToast(t('email_invalid'), 'error');
+      return false;
+    }
+    if (!payload.password) {
+      showToast(t('pw_min'), 'error');
+      return false;
+    }
+  }
+
+  return true;
+}
+
 async function handleFormSubmit(event) {
   event.preventDefault();
   const form = event.currentTarget;
@@ -9,13 +49,8 @@ async function handleFormSubmit(event) {
     payload[key] = value.trim();
   });
 
-  // Register form: ensure password match
-  if (form.id === 'registerForm') {
-    if (payload.password !== payload.confirm) {
-      showToast('Passwords do not match.', 'error');
-      return;
-    }
-    delete payload.confirm;
+  if (!validatePayload(form, payload)) {
+    return;
   }
 
   try {
@@ -27,31 +62,44 @@ async function handleFormSubmit(event) {
     const data = await res.json();
 
     if (!res.ok) {
-      showToast(data.error || 'Something went wrong.', 'error');
+      showToast(data.error || t('server_error'), 'error');
       return;
     }
 
     if (form.id === 'loginForm') {
       if (data.token) {
         setToken(data.token);
-        showToast('Logged in successfully!', 'success');
+        showToast(t('login_success'), 'success');
         window.location.href = '/predict.html';
         return;
       }
     }
 
     if (form.id === 'registerForm') {
-      showToast('Account created! Please log in.', 'success');
+      showToast(t('register_success'), 'success');
       window.location.href = '/login.html';
       return;
     }
   } catch (error) {
-    showToast('Unable to reach server.', 'error');
+    showToast(t('server_error'), 'error');
     console.error(error);
   }
 }
 
+async function redirectAuthenticatedUsers() {
+  const token = getToken();
+  if (!token) {
+    return;
+  }
+  const user = await getCurrentUser();
+  if (user) {
+    window.location.href = '/predict.html';
+  }
+}
+
 window.addEventListener('DOMContentLoaded', () => {
+  redirectAuthenticatedUsers();
+
   const loginForm = document.getElementById('loginForm');
   const registerForm = document.getElementById('registerForm');
 

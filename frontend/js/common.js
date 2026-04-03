@@ -16,6 +16,25 @@ function clearSession() {
   setToken(null);
 }
 
+async function getCurrentUser() {
+  const token = getToken();
+  if (!token) {
+    return null;
+  }
+
+  try {
+    const res = await apiFetch('/api/me', { method: 'GET' });
+    if (!res.ok) {
+      clearSession();
+      return null;
+    }
+    const data = await res.json();
+    return data?.user || null;
+  } catch (_) {
+    return null;
+  }
+}
+
 function apiFetch(path, options = {}) {
   const token = getToken();
   const headers = {
@@ -84,26 +103,112 @@ function showToast(message, type = 'info', timeout = 3500) {
   }, timeout);
 }
 
-function setupNavigation() {
-  const logoutBtn = document.getElementById('logoutBtn');
-  if (!logoutBtn) return;
+function getRandomUserIcon() {
+  const key = 'landcoverai_user_icon';
+  const cached = sessionStorage.getItem(key);
+  if (cached) {
+    return cached;
+  }
 
-  if (getToken()) {
-    logoutBtn.addEventListener('click', async event => {
+  const icons = ['AG', 'AI', 'LC', 'FM', 'RD', 'AN', 'US', 'MAP'];
+  const picked = icons[Math.floor(Math.random() * icons.length)];
+  sessionStorage.setItem(key, picked);
+  return picked;
+}
+
+function closeUserMenus() {
+  document.querySelectorAll('.user-dropdown.open').forEach(menu => {
+    menu.classList.remove('open');
+  });
+}
+
+function mountUserMenu(user) {
+  const nav = document.querySelector('.nav');
+  if (!nav) {
+    return;
+  }
+
+  const existing = document.getElementById('userMenuRoot');
+  if (existing) {
+    existing.remove();
+  }
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'user-dropdown';
+  wrapper.id = 'userMenuRoot';
+
+  const trigger = document.createElement('button');
+  trigger.type = 'button';
+  trigger.className = 'user-dropdown-trigger';
+  trigger.setAttribute('aria-label', 'User menu');
+  trigger.innerHTML = `
+    <span class="user-icon">${getRandomUserIcon()}</span>
+    <span class="user-name">${user?.name || t('user_menu')}</span>
+    <span class="user-caret">▾</span>
+  `;
+
+  const menu = document.createElement('div');
+  menu.className = 'user-dropdown-menu';
+  menu.innerHTML = `
+    <a href="/predictions.html">${t('nav_past_predictions')}</a>
+    <button type="button" id="menuLogoutBtn">${t('nav_logout')}</button>
+  `;
+
+  trigger.addEventListener('click', event => {
+    event.stopPropagation();
+    const willOpen = !wrapper.classList.contains('open');
+    closeUserMenus();
+    if (willOpen) {
+      wrapper.classList.add('open');
+    }
+  });
+
+  const menuLogoutBtn = menu.querySelector('#menuLogoutBtn');
+  if (menuLogoutBtn) {
+    menuLogoutBtn.addEventListener('click', async event => {
       event.preventDefault();
       try {
         await apiFetch('/api/logout', { method: 'POST' });
-      } catch (err) {
+      } catch (_) {
         // ignore
       }
       clearSession();
       window.location.href = '/login.html';
     });
-  } else {
-    logoutBtn.style.display = 'none';
   }
+
+  wrapper.appendChild(trigger);
+  wrapper.appendChild(menu);
+  nav.appendChild(wrapper);
+}
+
+async function setupNavigation() {
+  const navLogin = document.getElementById('navLoginLink');
+  const navRegister = document.getElementById('navRegisterLink');
+  const navLogout = document.getElementById('logoutBtn');
+  const user = await getCurrentUser();
+
+  if (user) {
+    if (navLogin) navLogin.style.display = 'none';
+    if (navRegister) navRegister.style.display = 'none';
+    if (navLogout) navLogout.style.display = 'none';
+    mountUserMenu(user);
+    // Apply translations in case the menu was rendered after initial DOMContentLoaded
+    if (typeof applyTranslations === 'function') setTimeout(applyTranslations, 0);
+    return;
+  }
+
+  const existingMenu = document.getElementById('userMenuRoot');
+  if (existingMenu) {
+    existingMenu.remove();
+  }
+
+  if (navLogin) navLogin.style.display = '';
+  if (navRegister) navRegister.style.display = '';
+  if (navLogout) navLogout.style.display = 'none';
 }
 
 window.addEventListener('DOMContentLoaded', () => {
+  document.addEventListener('click', () => closeUserMenus());
   setupNavigation();
 });

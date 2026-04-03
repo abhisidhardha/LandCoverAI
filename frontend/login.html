@@ -3,47 +3,51 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Login • LandCoverAI</title>
+    <title data-i18n="title_login">Login • LandCoverAI</title>
     <link rel="stylesheet" href="css/style.css" />
   </head>
   <body>
     <header class="site-header">
       <div class="container header-inner">
-        <a class="brand" href="/">LandCoverAI</a>
+        <a class="brand" href="/" data-i18n="brand">LandCoverAI</a>
         <nav class="nav">
-          <a href="/predict.html">Predict</a>
-          <a href="/register.html">Register</a>
+          <a href="/predict.html" data-i18n="nav_predict">Predict</a>
+          <a id="navRegisterLink" href="/register.html" data-i18n="nav_register">Register</a>
+          <a id="navLoginLink" href="/login.html" style="display:none;" data-i18n="nav_login">Login</a>
+          <a id="logoutBtn" href="#" style="display:none;" data-i18n="nav_logout">Logout</a>
         </nav>
       </div>
     </header>
 
     <main class="container auth-page">
       <section class="auth-card">
-        <h1>Welcome Back</h1>
-        <p>Sign in to view your past farm analyses and predictions.</p>
+        <h1 data-i18n="welcome_back">Welcome Back</h1>
+        <p data-i18n="login_desc">Sign in to view your past farm analyses and predictions.</p>
 
         <form id="loginForm" class="form">
           <label>
-            Email Address
-            <input type="email" name="email" class="input-field" required placeholder="farmer@example.com" style="margin-top: 0.5rem;" />
+            <span data-i18n="label_email">Email Address</span>
+            <input type="email" name="email" class="input-field" required placeholder="farmer@example.com" style="margin-top: 0.5rem;" data-i18n-placeholder="ph_email" />
           </label>
           <label>
-            Password
-            <input type="password" name="password" class="input-field" required placeholder="••••••••" style="margin-top: 0.5rem;" />
+            <span data-i18n="label_password">Password</span>
+            <input type="password" name="password" class="input-field" required placeholder="••••••••" style="margin-top: 0.5rem;" data-i18n-placeholder="ph_password" />
           </label>
 
-          <button type="submit" class="btn btn-primary btn-large" style="margin-top: 1rem;">Sign In</button>
-          <p class="form-footer">Don’t have an account? <a href="/register.html">Register</a></p>
+          <button type="submit" class="btn btn-primary btn-large" style="margin-top: 1rem;" data-i18n="btn_signin">Sign In</button>
+          <p class="form-footer"><span data-i18n="no_account">Don’t have an account?</span> <a href="/register.html" data-i18n="nav_register">Register</a></p>
         </form>
       </section>
     </main>
 
     <footer class="site-footer">
       <div class="container">
-        <p>© 2026 LandCoverAI.</p>
+        <p data-i18n="footer_short">© 2026 LandCoverAI.</p>
       </div>
     </footer>
 
+    <script src="js/i18n_translations.js"></script>
+    <script src="js/i18n.js"></script>
     <script src="js/common.js"></script>
     <script src="js/auth.js"></script>
   </body>

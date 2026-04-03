@@ -3,55 +3,59 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Register • LandCoverAI</title>
+    <title data-i18n="title_register">Register • LandCoverAI</title>
     <link rel="stylesheet" href="css/style.css" />
   </head>
   <body>
     <header class="site-header">
       <div class="container header-inner">
-        <a class="brand" href="/">LandCoverAI</a>
+        <a class="brand" href="/" data-i18n="brand">LandCoverAI</a>
         <nav class="nav">
-          <a href="/predict.html">Predict</a>
-          <a href="/login.html">Login</a>
+          <a href="/predict.html" data-i18n="nav_predict">Predict</a>
+          <a id="navLoginLink" href="/login.html" data-i18n="nav_login">Login</a>
+          <a id="navRegisterLink" href="/register.html" style="display:none;" data-i18n="nav_register">Register</a>
+          <a id="logoutBtn" href="#" style="display:none;" data-i18n="nav_logout">Logout</a>
         </nav>
       </div>
     </header>
 
     <main class="container auth-page">
       <section class="auth-card">
-        <h1>Create an account</h1>
-        <p>Register to start analyzing your land using satellite AI.</p>
+        <h1 data-i18n="create_account_title">Create an account</h1>
+        <p data-i18n="register_desc">Register to start analyzing your land using satellite AI.</p>
 
         <form id="registerForm" class="form">
           <label>
-            Full name
-            <input type="text" name="name" class="input-field" required placeholder="John Farmer" style="margin-top: 0.5rem;" />
+            <span data-i18n="label_fullname">Full name</span>
+            <input type="text" name="name" class="input-field" required placeholder="John Farmer" style="margin-top: 0.5rem;" data-i18n-placeholder="ph_name" />
           </label>
           <label>
-            Email Address
-            <input type="email" name="email" class="input-field" required placeholder="john@example.com" style="margin-top: 0.5rem;" />
+            <span data-i18n="label_email">Email Address</span>
+            <input type="email" name="email" class="input-field" required placeholder="john@example.com" style="margin-top: 0.5rem;" data-i18n-placeholder="ph_email_reg" />
           </label>
           <label>
-            Password
-            <input type="password" name="password" class="input-field" required minlength="8" placeholder="••••••••" style="margin-top: 0.5rem;" />
+            <span data-i18n="label_password">Password</span>
+            <input type="password" name="password" class="input-field" required minlength="8" placeholder="••••••••" style="margin-top: 0.5rem;" data-i18n-placeholder="ph_password" />
           </label>
           <label>
-            Confirm password
-            <input type="password" name="confirm" class="input-field" required minlength="8" placeholder="••••••••" style="margin-top: 0.5rem;" />
+            <span data-i18n="label_confirm_pw">Confirm password</span>
+            <input type="password" name="confirm" class="input-field" required minlength="8" placeholder="••••••••" style="margin-top: 0.5rem;" data-i18n-placeholder="ph_password" />
           </label>
 
-          <button type="submit" class="btn btn-primary btn-large" style="margin-top: 1rem;">Create Account</button>
-          <p class="form-footer">Already registered? <a href="/login.html">Login</a></p>
+          <button type="submit" class="btn btn-primary btn-large" style="margin-top: 1rem;" data-i18n="btn_create_acct">Create Account</button>
+          <p class="form-footer"><span data-i18n="already_registered">Already registered?</span> <a href="/login.html" data-i18n="nav_login">Login</a></p>
         </form>
       </section>
     </main>
 
     <footer class="site-footer">
       <div class="container">
-        <p>© 2026 LandCoverAI.</p>
+        <p data-i18n="footer_short">© 2026 LandCoverAI.</p>
       </div>
     </footer>
 
+    <script src="js/i18n_translations.js"></script>
+    <script src="js/i18n.js"></script>
     <script src="js/common.js"></script>
     <script src="js/auth.js"></script>
   </body>
