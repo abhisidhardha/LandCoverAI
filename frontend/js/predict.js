@@ -186,6 +186,69 @@ const CATEGORY_COLORS = {
   'Other':      { bg: '#ede7f6', text: '#512da8' },
 };
 
+function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function buildRecLabelsHtml(crop) {
+  const labels = crop.recommendation_labels;
+  if (!labels || !labels.length) return '';
+  return `<div class="rec-label-chips" aria-label="Recommendation labels">
+    ${labels.map((l) => `<span class="rec-label-chip">${escapeHtml(l.text || '')}</span>`).join('')}
+  </div>`;
+}
+
+function buildPracticalMetricsHtml(crop) {
+  const y = crop.yield_potential;
+  const m = crop.market_demand;
+  const pr = crop.practical_score;
+  if (y == null && m == null && pr == null) return '';
+  const row = (label, val, color) => {
+    if (val == null || !Number.isFinite(Number(val))) return '';
+    const v = Math.min(100, Math.max(0, Number(val)));
+    return `<div class="crop-metric">
+      <span class="crop-metric-lbl">${escapeHtml(label)}</span>
+      <div class="crop-score-track crop-metric-track"><div class="crop-score-fill" style="width:${v}%;background:${color}"></div></div>
+      <span class="crop-metric-val">${v.toFixed(0)}</span>
+    </div>`;
+  };
+  const yl = t('yield_idx') || 'Yield index';
+  const ml = t('market_idx') || 'Market index';
+  const pl = t('practical_score_lbl') || 'Practical score';
+  const note = t('metrics_note') || 'Indices 0–100: typical productivity & market depth (India, heuristic — not live prices).';
+  const prBlock = (pr != null && Number.isFinite(Number(pr)))
+    ? `<div class="crop-metric crop-metric-practical"><span class="crop-metric-lbl">${escapeHtml(pl)}</span><span class="crop-metric-val crop-metric-val-em">${Number(pr).toFixed(1)}</span></div>`
+    : '';
+  return `<div class="crop-metrics-wrap">
+    <div class="crop-metrics-grid">${row(yl, y, '#1565c0')}${row(ml, m, '#6a1b9a')}${prBlock}</div>
+    <p class="muted crop-metrics-note" style="font-size:0.78rem;margin:0.5rem 0 0;">${escapeHtml(note)}</p>
+  </div>`;
+}
+
+function buildCategoryPickCard(crop) {
+  const el = document.createElement('div');
+  el.className = 'crop-card category-pick-card';
+  const s = Number(crop.suitability_score ?? 0);
+  const safeS = Number.isFinite(s) ? s : 0;
+  const labels = buildRecLabelsHtml(crop);
+  const metrics = buildPracticalMetricsHtml(crop);
+  const rt = crop.risk_tier || 'Worth Exploring';
+  el.innerHTML = `
+    <div class="category-pick-head">
+      <strong class="category-pick-name">${escapeHtml(crop.name || '')}</strong>
+      <span class="category-pick-tier muted">${escapeHtml(rt)}</span>
+    </div>
+    <div class="category-pick-scores"><span>${(t('land_fit') || 'Land fit')}</span><strong>${safeS.toFixed(1)}%</strong></div>
+    ${labels}
+    ${metrics}
+  `;
+  return el;
+}
+
 function renderCropOverview(cropData) {
   const container = document.getElementById('cropOverview');
   if (!container || !cropData) return;
@@ -203,6 +266,10 @@ function renderCropOverview(cropData) {
   const tableRows = rows.map(({ crop, rank }) => {
     const tier = crop.risk_tier || (rank <= 5 ? 'Best Fit' : rank <= 10 ? 'Good Alternative' : 'Worth Exploring');
     const score = (crop.suitability_score || 0).toFixed(1);
+    const yv = crop.yield_potential;
+    const mv = crop.market_demand;
+    const yCell = yv != null && Number.isFinite(Number(yv)) ? `${Number(yv).toFixed(0)}` : '—';
+    const mCell = mv != null && Number.isFinite(Number(mv)) ? `${Number(mv).toFixed(0)}` : '—';
     return `
       <tr>
         <td>#${rank}</td>
@@ -210,6 +277,8 @@ function renderCropOverview(cropData) {
         <td>${crop.category || 'Other'}</td>
         <td>${tier}</td>
         <td class="crop-overview-score">${score}%</td>
+        <td class="muted">${yCell}</td>
+        <td class="muted">${mCell}</td>
       </tr>`;
   }).join('');
 
@@ -237,7 +306,9 @@ function renderCropOverview(cropData) {
             <th>${t('crop') || 'Crop'}</th>
             <th>${t('th_class') || 'Category'}</th>
             <th>${t('tier') || 'Tier'}</th>
-            <th>${t('suitability') || 'Suitability'}</th>
+            <th>${t('suitability') || 'Land fit'}</th>
+            <th title="${t('yield_idx') || 'Yield index'}">${t('yield_abbr') || 'Yld'}</th>
+            <th title="${t('market_idx') || 'Market index'}">${t('mkt_abbr') || 'Mkt'}</th>
           </tr>
         </thead>
         <tbody>${tableRows}</tbody>
@@ -251,7 +322,7 @@ function renderRecommendations(cropData) {
   const container = document.getElementById('cropRecommendations');
   if (!container || !cropData) return;
 
-  const { recommendations, explanations, terrain_classification } = cropData;
+  const { recommendations, explanations, terrain_classification, category_sections: catSectionsRaw } = cropData;
   if (!recommendations || recommendations.length === 0) {
     container.innerHTML = `<p class="muted">${t('no_crop_recs') || 'No crop recommendations for this area.'}</p>`;
     return;
@@ -272,6 +343,40 @@ function renderRecommendations(cropData) {
       </div>
     `;
     container.appendChild(terrainBanner);
+  }
+
+  // ── Top picks by category (labeled sections, few per group) ────────────
+  const catSections = catSectionsRaw || [];
+  if (catSections.length) {
+    const hub = document.createElement('div');
+    hub.className = 'category-hub-intro';
+    hub.innerHTML = `<p class="muted" style="margin:0 0 18px;line-height:1.55;font-size:0.95rem;">
+      <strong style="color:var(--text-color);">${t('category_picks_title') || 'Recommendations by crop category'}</strong><br/>
+      ${t('category_picks_desc') || 'Each group shows up to two crops with the strongest practical blend: satellite land fit, typical yield potential, and wholesale market depth (heuristic index, not live prices).'}
+    </p>`;
+    container.appendChild(hub);
+
+    catSections.forEach((sec) => {
+      const pill = CATEGORY_COLORS[sec.category] || { bg: '#eceff1', text: '#37474f' };
+      const hdr = document.createElement('div');
+      hdr.className = 'category-section-heading';
+      hdr.innerHTML = `
+        <h4 class="category-section-title">
+          <span class="category-section-pill" style="background:${pill.bg};color:${pill.text};">${escapeHtml(sec.section_title || sec.category || '')}</span>
+          <span class="category-section-sub muted">${escapeHtml(sec.section_subtitle || '')}</span>
+        </h4>`;
+      container.appendChild(hdr);
+      const grid = document.createElement('div');
+      grid.className = 'category-picks-grid';
+      (sec.picks || []).forEach((pick) => grid.appendChild(buildCategoryPickCard(pick)));
+      container.appendChild(grid);
+    });
+
+    const sep = document.createElement('div');
+    sep.className = 'rec-section-divider';
+    sep.innerHTML = `<h3 class="rec-section-divider-title">${t('diverse_shortlist') || 'Diverse shortlist (risk tiers)'}</h3>
+      <p class="muted" style="font-size:0.88rem;margin:0;">${t('diverse_shortlist_desc') || 'Land-cover–diverse top picks with uncertainty bands — read together with the category view above.'}</p>`;
+    container.appendChild(sep);
   }
 
   // ── Risk Tier Configuration ────────────────────────────────────────────
@@ -437,6 +542,9 @@ function renderRecommendations(cropData) {
       // Tier badge
       const tierBadgeColor = config.color;
       const tierBadgeBg = config.border + '18';
+      const tierLabel = crop.risk_tier || tierName;
+      const labelsHtml = buildRecLabelsHtml(crop);
+      const metricsHtml = buildPracticalMetricsHtml(crop);
 
       card.innerHTML = `
         <div style="display: flex; flex-direction: row; flex-wrap: wrap; gap: 1.5rem; align-items: center; justify-content: space-between;">
@@ -448,13 +556,14 @@ function renderRecommendations(cropData) {
               <div class="crop-badges">
                 <span class="crop-cat-badge" style="background:${catColor.bg};color:${catColor.text}">${t('opt_' + crop.category.toLowerCase()) || crop.category}</span>
                 <span class="crop-cat-badge" style="background:${riskColor};color:white;font-weight:600;" title="Monte Carlo 90% CI${ci}">${t('risk_label') || 'Risk'}: ${risk}</span>
-                <span class="crop-cat-badge" style="background:${tierBadgeBg};color:${tierBadgeColor};font-weight:600;border:1px solid ${tierBadgeColor}30;">${tierName}</span>
+                <span class="crop-cat-badge" style="background:${tierBadgeBg};color:${tierBadgeColor};font-weight:600;border:1px solid ${tierBadgeColor}30;">${tierLabel}</span>
               </div>
+              ${labelsHtml}
             </div>
           </div>
           <div class="crop-score" style="margin-bottom: 0; min-width: 200px; max-width: 380px; flex: 1;">
             <div class="crop-score-header">
-              <span>${t('suitability') || 'Suitability'}</span>
+              <span>${t('suitability') || 'Land suitability'}</span>
               <span style="font-weight:700;color:${scoreColor}">${safeScore.toFixed(1)}%</span>
             </div>
             <div class="crop-score-track">
@@ -462,6 +571,7 @@ function renderRecommendations(cropData) {
             </div>
           </div>
         </div>
+        ${metricsHtml}
         <div class="crop-card-body" style="background: rgba(0,0,0,0.03); padding: 1.25rem; border-radius: 12px; border: 1px solid var(--border); margin-top: 1.25rem; display: flex; flex-direction: column; gap: 0.8rem;">
           ${agriHTML ? `<details class="agri-details" open><summary>${t('agri_details') || 'Agricultural Details'}</summary>${agriHTML}</details>` : ''}
           ${crop.visual_explanation ? `<details class="shap-details" open><summary>${t('visual_match') || 'Advanced Visual Match'}</summary><img src="${crop.visual_explanation}" alt="Visual Explanation" style="width:100%;border-radius:6px;margin-top:10px;"></details>` : ''}

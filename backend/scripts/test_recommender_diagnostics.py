@@ -184,7 +184,7 @@ def run_diagnostics() -> int:
         issues.extend([f"[{name}] {m}" for m in _check_rank_integrity(ranked)])
 
         # Deep similarity check uses recs from recommend_and_explain (contains favorable vectors).
-        recs, _, _ = recommender.recommend_and_explain(obs, top_k=10)
+        recs, _, _, _ = recommender.recommend_and_explain(obs, top_k=10)
         warnings.extend([f"[{name}] {m}" for m in _check_profile_similarity(recs, threshold=12.0)])
 
         # CI sanity checks

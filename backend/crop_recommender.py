@@ -25,6 +25,12 @@ from datetime import datetime
 import numpy as np
 from typing import List, Dict, Optional
 from crop_explanations import build_explanation, build_evidence_table
+from crop_value_profiles import (
+    CATEGORY_UI,
+    DISPLAY_CATEGORY_ORDER,
+    enrich_rec_value_metrics,
+    recommendations_by_category,
+)
 
 # ============================================================================
 # CROP DATABASE - 100 Crops (FAO/ICAR/CGIAR Suitability Percentages)
@@ -868,7 +874,7 @@ class CropRecommender:
         categories with risk-tier labels.
 
         Returns:
-            (recommendations_list, explanations_dict, terrain_info)
+            (recommendations_list, explanations_dict, terrain_info, recommendations_by_cat)
         """
         # ── Classify terrain ─────────────────────────────────────────────
         terrain_name, terrain_arch = classify_terrain(observed_pct)
@@ -1024,6 +1030,12 @@ class CropRecommender:
                         rec["suitability_score"] = max(0.0, rec["suitability_score"] - 30.0)
                         rec["rotation_warning"] = rules.get("rationale", "")
 
+        # ── Yield / market indices + practical score (after final land score) ──
+        for rec in all_results:
+            enrich_rec_value_metrics(rec)
+
+        recommendations_by_cat = recommendations_by_category(all_results, per_category=2)
+
         # ── v2: DIVERSITY-AWARE SELECTION ────────────────────────────────
         selected = _select_diverse_top_k(all_results, top_k=top_k, observed_pct=observed_pct)
 
@@ -1048,7 +1060,7 @@ class CropRecommender:
             "description": terrain_arch.get("description", ""),
         }
 
-        return selected, top_expl, terrain_info
+        return selected, top_expl, terrain_info, recommendations_by_cat
 
 _recommender_instance: Optional[CropRecommender] = None
 
@@ -1085,7 +1097,7 @@ def generate_recommendations(class_mask: np.ndarray, top_k: int = 15,
     observed = features["pct"]
     seg_pcts = features["seg_pcts"]
 
-    recommendations, explanations, terrain_info = recommender.recommend_and_explain(
+    recommendations, explanations, terrain_info, by_cat = recommender.recommend_and_explain(
         observed, top_k=top_k, current_month=current_month, previous_crop_id=previous_crop_id,
         climate_features=climate_features
     )
@@ -1094,12 +1106,16 @@ def generate_recommendations(class_mask: np.ndarray, top_k: int = 15,
     for cid, name in enumerate(LANDCOVER_NAMES):
         profile[name] = round(float(seg_pcts[cid]), 1)
 
+    water_regime = _infer_water_regime(observed)
+    category_sections = _build_category_sections_payload(by_cat, water_regime)
+
     return {
-        "recommendations":        recommendations,
-        "explanations":           explanations,
-        "landcover_profile":      profile,
-        "terrain_classification": terrain_info,
-        "climate_features":       climate_features,
+        "recommendations":         recommendations,
+        "explanations":            explanations,
+        "landcover_profile":       profile,
+        "terrain_classification":  terrain_info,
+        "climate_features":        climate_features,
+        "category_sections":       category_sections,
     }
 
 
@@ -1328,6 +1344,70 @@ def _regime_match_label(water_regime: str, favorable_water: float) -> str:
     return "Weak"
 
 
+def _risk_tier_from_land_score(score: float) -> str:
+    if score >= 75:
+        return "Best Fit"
+    if score >= 55:
+        return "Good Alternative"
+    return "Worth Exploring"
+
+
+def _ranked_crop_item_from_rec(rec: dict, rank: int, water_regime: str) -> dict:
+    """API-shaped dict aligned with recommend_crops ranked_crops entries."""
+    fav = rec.get("favorable") or {}
+    land_w = float(fav.get("water", 0))
+    score = float(rec.get("suitability_score") or 0)
+    return {
+        "rank": rank,
+        "crop": rec["name"],
+        "crop_id": rec["crop_id"],
+        "scientific_name": rec.get("scientific_name", ""),
+        "category": rec["category"],
+        "season": _season_for_category(rec["category"]),
+        "score": rec["suitability_score"],
+        "yield_potential": rec.get("yield_potential"),
+        "market_demand": rec.get("market_demand"),
+        "practical_score": rec.get("practical_score"),
+        "recommendation_labels": rec.get("recommendation_labels", []),
+        "regime_match": _regime_match_label(water_regime, land_w),
+        "marginal": score < 50,
+        "prediction_risk": rec.get("prediction_risk", "Moderate"),
+        "confidence_interval": rec.get("confidence_interval"),
+        "reasoning": rec.get("explanation", ""),
+        "risk_tier": rec.get("risk_tier") or _risk_tier_from_land_score(score),
+        "counterfactuals": rec.get("counterfactuals", []),
+        "growing_conditions": rec.get("growing_conditions", {}),
+        "fertilizers": rec.get("fertilizers", ""),
+        "best_regions": rec.get("best_regions", ""),
+        "key_practices": rec.get("key_practices", ""),
+        "favorable": fav,
+        "evidence_table": rec.get("evidence_table", []),
+        "explanation_meta": rec.get("explanation_meta", {}),
+        "terrain_bonus_pts": rec.get("terrain_bonus_pts", 0.0),
+        "climate_bonus_pts": rec.get("climate_bonus_pts", 0.0),
+        "terrain_name": rec.get("terrain_name", ""),
+    }
+
+
+def _build_category_sections_payload(by_cat: Dict[str, List[dict]], water_regime: str) -> list:
+    sections: List[dict] = []
+    for cat in DISPLAY_CATEGORY_ORDER:
+        picks = by_cat.get(cat) or []
+        if not picks:
+            continue
+        title, subtitle = CATEGORY_UI.get(cat, (cat, ""))
+        sections.append({
+            "category": cat,
+            "section_title": title,
+            "section_subtitle": subtitle,
+            "picks": [
+                _ranked_crop_item_from_rec(r, j + 1, water_regime)
+                for j, r in enumerate(picks)
+            ],
+        })
+    return sections
+
+
 def recommend_crops(percentages: Dict, top_n: int = 10,
                     current_month: int = None,
                     previous_crop_id: int = None,
@@ -1401,7 +1481,7 @@ def recommend_crops(percentages: Dict, top_n: int = 10,
         }
 
     recommender = get_recommender()
-    recs, feature_explanations, terrain_info = recommender.recommend_and_explain(
+    recs, feature_explanations, terrain_info, by_cat = recommender.recommend_and_explain(
         observed,
         top_k=top_k,
         current_month=current_month,
@@ -1409,34 +1489,11 @@ def recommend_crops(percentages: Dict, top_n: int = 10,
         climate_features=climate_features,
     )
 
-    ranked_crops = []
-    for i, rec in enumerate(recs, start=1):
-        ranked_crops.append({
-            "rank": i,
-            "crop": rec["name"],
-            "crop_id": rec["crop_id"],
-            "scientific_name": rec.get("scientific_name", ""),
-            "category": rec["category"],
-            "season": _season_for_category(rec["category"]),
-            "score": rec["suitability_score"],
-            "regime_match": _regime_match_label(water_regime, float(rec["favorable"]["water"])),
-            "marginal": rec["suitability_score"] < 50,
-            "prediction_risk": rec.get("prediction_risk", "Moderate"),
-            "confidence_interval": rec.get("confidence_interval"),
-            "reasoning": rec.get("explanation", ""),
-            "risk_tier": rec.get("risk_tier", "Worth Exploring"),
-            "counterfactuals": rec.get("counterfactuals", []),
-            "growing_conditions": rec.get("growing_conditions", {}),
-            "fertilizers": rec.get("fertilizers", ""),
-            "best_regions": rec.get("best_regions", ""),
-            "key_practices": rec.get("key_practices", ""),
-            "favorable": rec.get("favorable", {}),
-            "evidence_table": rec.get("evidence_table", []),
-            "explanation_meta": rec.get("explanation_meta", {}),
-            "terrain_bonus_pts": rec.get("terrain_bonus_pts", 0.0),
-            "climate_bonus_pts": rec.get("climate_bonus_pts", 0.0),
-            "terrain_name": rec.get("terrain_name", ""),
-        })
+    ranked_crops = [
+        _ranked_crop_item_from_rec(rec, i, water_regime)
+        for i, rec in enumerate(recs, start=1)
+    ]
+    category_sections = _build_category_sections_payload(by_cat, water_regime)
 
     return {
         "status": "ok",
@@ -1449,4 +1506,5 @@ def recommend_crops(percentages: Dict, top_n: int = 10,
         "feature_explanations": feature_explanations,
         "climate_features": climate_features,
         "ranked_crops": ranked_crops,
+        "category_sections": category_sections,
     }

@@ -1,14 +1,35 @@
 const STORAGE_TOKEN_KEY = 'landcoverai_token';
 
+// Auth lives in sessionStorage only — closing the browser ends the session.
+// Remove any legacy token from localStorage (older builds persisted forever).
+try {
+  localStorage.removeItem(STORAGE_TOKEN_KEY);
+} catch (_) {
+  /* ignore */
+}
+
 function getToken() {
-  return localStorage.getItem(STORAGE_TOKEN_KEY) || null;
+  try {
+    return sessionStorage.getItem(STORAGE_TOKEN_KEY) || null;
+  } catch (_) {
+    return null;
+  }
 }
 
 function setToken(token) {
-  if (token) {
-    localStorage.setItem(STORAGE_TOKEN_KEY, token);
-  } else {
+  try {
+    if (token) {
+      sessionStorage.setItem(STORAGE_TOKEN_KEY, token);
+    } else {
+      sessionStorage.removeItem(STORAGE_TOKEN_KEY);
+    }
+  } catch (_) {
+    /* quota / private mode */
+  }
+  try {
     localStorage.removeItem(STORAGE_TOKEN_KEY);
+  } catch (_) {
+    /* ignore */
   }
 }
 
@@ -186,12 +207,14 @@ async function setupNavigation() {
   const navLogin = document.getElementById('navLoginLink');
   const navRegister = document.getElementById('navRegisterLink');
   const navLogout = document.getElementById('logoutBtn');
+  const heroRegister = document.getElementById('heroRegisterLink');
   const user = await getCurrentUser();
 
   if (user) {
     if (navLogin) navLogin.style.display = 'none';
     if (navRegister) navRegister.style.display = 'none';
     if (navLogout) navLogout.style.display = 'none';
+    if (heroRegister) heroRegister.style.display = 'none';
     mountUserMenu(user);
     // Apply translations in case the menu was rendered after initial DOMContentLoaded
     if (typeof applyTranslations === 'function') setTimeout(applyTranslations, 0);
@@ -206,6 +229,7 @@ async function setupNavigation() {
   if (navLogin) navLogin.style.display = '';
   if (navRegister) navRegister.style.display = '';
   if (navLogout) navLogout.style.display = 'none';
+  if (heroRegister) heroRegister.style.removeProperty('display');
 }
 
 window.addEventListener('DOMContentLoaded', () => {

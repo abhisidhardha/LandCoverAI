@@ -658,47 +658,73 @@ def _compute_landcover_percentages(class_mask: np.ndarray) -> Dict[str, float]:
     return percentages
 
 
+def _map_ranked_item_to_frontend_rec(item: dict) -> dict:
+    """Single ranked_crops / category pick → frontend recommendation object."""
+    rk = int(item.get("rank") or 0)
+    tier = item.get("risk_tier")
+    if not tier:
+        tier = (
+            "Best Fit" if rk <= 5 else "Good Alternative" if rk <= 10 else "Worth Exploring"
+        )
+    return {
+        "name": item["crop"],
+        "category": item["category"],
+        "season": item["season"],
+        "suitability_score": item["score"],
+        "regime_match": item["regime_match"],
+        "risk_tier": tier,
+        "crop_id": item.get("crop_id", rk),
+        "explanation": item.get("reasoning", ""),
+        "prediction_risk": item.get("prediction_risk"),
+        "confidence_interval": item.get("confidence_interval"),
+        "counterfactuals": item.get("counterfactuals", []),
+        "marginal": item.get("marginal", False),
+        "scientific_name": item.get("scientific_name", ""),
+        "growing_conditions": item.get("growing_conditions", {}),
+        "fertilizers": item.get("fertilizers", ""),
+        "best_regions": item.get("best_regions", ""),
+        "key_practices": item.get("key_practices", ""),
+        "season_bonus": item.get("season_bonus", False),
+        "planting_window": item.get("planting_window"),
+        "rotation_benefit": item.get("rotation_benefit", ""),
+        "rotation_warning": item.get("rotation_warning", ""),
+        "favorable": item.get("favorable", {}),
+        "evidence_table": item.get("evidence_table", []),
+        "explanation_meta": item.get("explanation_meta", {}),
+        "terrain_bonus_pts": item.get("terrain_bonus_pts", 0.0),
+        "climate_bonus_pts": item.get("climate_bonus_pts", 0.0),
+        "terrain_name": item.get("terrain_name", ""),
+        "yield_potential": item.get("yield_potential"),
+        "market_demand": item.get("market_demand"),
+        "practical_score": item.get("practical_score"),
+        "recommendation_labels": item.get("recommendation_labels") or [],
+    }
+
+
 def _transform_crop_recommendations(crop_result: dict, landcover_pct: dict) -> dict:
     """
     Transform crop_recommender output to match frontend expectations.
     """
-    # Map ranked_crops to recommendations with frontend-expected structure
-    recommendations = []
-    for item in crop_result.get("ranked_crops", []):
-        recommendations.append({
-            "name": item["crop"],
-            "category": item["category"],
-            "season": item["season"],
-            "suitability_score": item["score"],
-            "regime_match": item["regime_match"],
-            "risk_tier": "Best Fit" if item["rank"] <= 5 else "Good Alternative" if item["rank"] <= 10 else "Worth Exploring",
-            "crop_id": item.get("crop_id", item["rank"]),
-            "explanation": item.get("reasoning", ""),
-            "prediction_risk": item.get("prediction_risk"),
-            "confidence_interval": item.get("confidence_interval"),
-            "counterfactuals": item.get("counterfactuals", []),
-            "marginal": item.get("marginal", False),
-            "scientific_name": item.get("scientific_name", ""),
-            "growing_conditions": item.get("growing_conditions", {}),
-            "fertilizers": item.get("fertilizers", ""),
-            "best_regions": item.get("best_regions", ""),
-            "key_practices": item.get("key_practices", ""),
-            "season_bonus": item.get("season_bonus", False),
-            "planting_window": item.get("planting_window"),
-            "rotation_benefit": item.get("rotation_benefit", ""),
-            "rotation_warning": item.get("rotation_warning", ""),
-            "favorable": item.get("favorable", {}),
-            "evidence_table": item.get("evidence_table", []),
-            "explanation_meta": item.get("explanation_meta", {}),
-            "terrain_bonus_pts": item.get("terrain_bonus_pts", 0.0),
-            "climate_bonus_pts": item.get("climate_bonus_pts", 0.0),
-            "terrain_name": item.get("terrain_name", ""),
+    recommendations = [
+        _map_ranked_item_to_frontend_rec(item)
+        for item in crop_result.get("ranked_crops", [])
+    ]
+
+    category_sections = []
+    for sec in crop_result.get("category_sections", []):
+        category_sections.append({
+            "category": sec.get("category"),
+            "section_title": sec.get("section_title"),
+            "section_subtitle": sec.get("section_subtitle"),
+            "picks": [
+                _map_ranked_item_to_frontend_rec(p)
+                for p in sec.get("picks", [])
+            ],
         })
-    
-    # Detect terrain classification
+
     terrain = _classify_terrain(landcover_pct, crop_result.get("water_regime"))
-    
-    return {
+
+    out = {
         "recommendations": recommendations,
         "explanations": crop_result.get("feature_explanations", {}),
         "landcover_profile": landcover_pct,
@@ -710,6 +736,9 @@ def _transform_crop_recommendations(crop_result: dict, landcover_pct: dict) -> d
         "flags": crop_result.get("flags", []),
         "climate_features": crop_result.get("climate_features"),
     }
+    if category_sections:
+        out["category_sections"] = category_sections
+    return out
 
 
 def _classify_terrain(landcover: dict, water_regime: str) -> dict:

@@ -9,7 +9,8 @@ const SUPPORTED_LANGS = {
 };
 
 const LANG_STORAGE_KEY = 'landcoverai_lang';
-let currentLang = localStorage.getItem(LANG_STORAGE_KEY) || 'en';
+// English-only UI until translation is complete and the switcher is re-enabled.
+let currentLang = 'en';
 
 // Translation dictionaries loaded from separate files via i18n_translations.js
 // window._i18nData is set by i18n_translations.js
@@ -30,9 +31,12 @@ function getCurrentLang() {
 function setLang(lang) {
   if (!SUPPORTED_LANGS[lang]) return;
   currentLang = lang;
-  localStorage.setItem(LANG_STORAGE_KEY, lang);
+  try {
+    localStorage.setItem(LANG_STORAGE_KEY, lang);
+  } catch (_) {
+    /* ignore */
+  }
   applyTranslations();
-  // Update switcher display
   const sel = document.getElementById('langSwitcher');
   if (sel) sel.value = lang;
 }
@@ -84,6 +88,6 @@ function mountLangSwitcher() {
 }
 
 window.addEventListener('DOMContentLoaded', () => {
-  mountLangSwitcher();
+  // Language switcher removed until all strings are translated; default UI is English.
   applyTranslations();
 });
